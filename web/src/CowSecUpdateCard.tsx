@@ -1,7 +1,7 @@
 // Fresh Hay: CowSec's own updates from its GitHub releases. The optional access token
 // (for a private repository) is write-only here: the server never sends it back.
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ChevronDown, ExternalLink, KeyRound, Loader2, RefreshCw, Rocket, Settings2, ShieldCheck, Trash2 } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ExternalLink, KeyRound, Loader2, PartyPopper, RefreshCw, Rocket, Settings2, ShieldCheck, Trash2, X } from 'lucide-react';
 import { Card } from './HostPanel';
 import CowSecLogo from './CowSecLogo';
 
@@ -21,6 +21,13 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
   const [repo, setRepo] = useState('');
   const [token, setToken] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [justUpdated, setJustUpdated] = useState(() => {
+    try { return localStorage.getItem('cowsec_just_updated') === '1'; } catch { return false; }
+  });
+  const dismiss = () => {
+    setJustUpdated(false);
+    try { localStorage.removeItem('cowsec_just_updated'); } catch { /* storage unavailable */ }
+  };
 
   const load = useCallback(async (refresh = false) => {
     setChecking(true);
@@ -53,6 +60,15 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
         <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} /> Check for a new release</button>}>
       {!rel ? <p className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /> Checking…</p> : (
         <div className="space-y-4">
+          {justUpdated && (
+            <div className="relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4 cs-pop">
+              <button onClick={dismiss} className="absolute top-3 right-3 text-emerald-200/70 hover:text-white cursor-pointer" aria-label="Dismiss"><X className="w-4 h-4" /></button>
+              <p className="flex items-center gap-2 font-semibold text-emerald-100"><PartyPopper className="w-5 h-5 cs-m-wobble" /> CowSec updated to {rel.installed}</p>
+              {rel.latest && rel.latest.version === rel.installed && rel.latest.notes && (
+                <div className="mt-2 text-xs text-emerald-100/90 whitespace-pre-wrap max-h-48 overflow-y-auto">{rel.latest.notes}</div>
+              )}
+            </div>
+          )}
           <div className="grid sm:grid-cols-3 gap-3 text-sm">
             <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
               <p className="text-[11px] uppercase tracking-wider text-slate-500">Installed</p>

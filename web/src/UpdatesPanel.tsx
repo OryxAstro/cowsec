@@ -95,7 +95,10 @@ export default function UpdatesPanel() {
           if (alive && c) setLiveContainers(c);
         }
         if (j.state === 'running') t = window.setTimeout(tick, 1500);
-        else if (active === 'upgrade-cowsec' && j.state === 'ok') window.setTimeout(() => window.location.reload(), 2500); // load the new console
+        else if (active === 'upgrade-cowsec' && j.state === 'ok') {
+          try { localStorage.setItem('cowsec_just_updated', '1'); } catch { /* storage unavailable */ }
+          window.setTimeout(() => window.location.reload(), 2500); // load the new console
+        }
         else load();
       } catch {
         // the console restarts during its own update: keep asking until it's back
