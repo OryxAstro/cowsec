@@ -185,13 +185,26 @@ def apt_key_repo(r, name, key_url, line, keyring):
     return True
 
 
-def apt_install(r, pkgs):
+POLICY_RC = "/usr/sbin/policy-rc.d"
+
+
+def apt_install(r, pkgs, no_start=False):
+    """Installs missing packages. no_start keeps maintainer scripts from starting services
+    (e.g. OpenResty would try to bind port 80 while mailcow still holds it)."""
     missing = [p for p in pkgs if run(["dpkg-query", "-W", "-f=${Status}", p])[1] != "install ok installed"]
     if not missing:
         r.log("already installed: " + ", ".join(pkgs))
         return
-    r.sh(["apt-get", "update", "-q"])
-    r.sh(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold"] + missing)
+    own_policy = no_start and not os.path.exists(POLICY_RC)
+    if own_policy:
+        write(POLICY_RC, "#!/bin/sh\n# temporary, CowSec setup: do not start services during package installation\nexit 101\n", 0o755)
+    try:
+        r.sh(["dpkg", "--configure", "-a"], check=False)  # finish any interrupted earlier attempt
+        r.sh(["apt-get", "update", "-q"])
+        r.sh(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold"] + missing)
+    finally:
+        if own_policy and os.path.exists(POLICY_RC):
+            os.remove(POLICY_RC)
 
 
 # ---------------------------------------------------------------- mailcow discovery
@@ -278,10 +291,15 @@ def preflight():
         m = re.search(r"[:\]](80|443|8081|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\"", line)
         if m:
             owners.setdefault(m.group(1), set()).add(m.group(2))
-    host_web = [p for p in ("80", "443") if owners.get(p, set()) - {"docker-proxy", "openresty", "nginx"} or ("nginx" in owners.get(p, set()))]
+    web = set().union(*[owners.get(p, set()) for p in ("80", "443")])
     rc_ng, _ = run(["systemctl", "is-active", "--quiet", "nginx"])
-    add("web-ports", "Ports 80/443 free for the edge", "warn" if rc_ng == 0 else "ok",
-        "a host nginx service is running; the edge needs 80/443" if rc_ng == 0 else "used by: " + ", ".join(sorted(set().union(*[owners.get(p, set()) for p in ("80", "443")])) or "-"))
+    others = web - {"docker-proxy", "openresty"}
+    if rc_ng == 0 or others:
+        add("web-ports", "Web ports 80/443 available", "warn", "used by %s on the host; the edge needs 80/443" % ", ".join(sorted(others) or ["nginx"]))
+    elif "openresty" in web:
+        add("web-ports", "Web ports 80/443 available", "ok", "already served by the OpenResty edge")
+    else:
+        add("web-ports", "Web ports 80/443 available", "ok", "served by mailcow now; the edge takes them over and moves mailcow to localhost" if "docker-proxy" in web else "free")
     for port, what in (("8081", "mailcow HTTP (edge)"), ("8443", "mailcow HTTPS (edge)"), ("8090", "CowSec console")):
         o = owners.get(port, set()) - {"docker-proxy", "cowsec"}
         if o:
@@ -567,7 +585,8 @@ def step_edge(c, r, ctx):
     apt_key_repo(r, "openresty", "https://openresty.org/package/pubkey.gpg",
                  "deb [signed-by=/usr/share/keyrings/openresty.gpg] https://openresty.org/package/%s %s %s" % (flavour, code, comp),
                  "/usr/share/keyrings/openresty.gpg")
-    apt_install(r, ["openresty", "crowdsec-openresty-bouncer"])
+    apt_install(r, ["openresty", "crowdsec-openresty-bouncer"], no_start=True)
+    r.sh(["systemctl", "stop", "openresty"], check=False)
     os.makedirs("/var/log/openresty", exist_ok=True)
     os.makedirs(NGX + "/sites", exist_ok=True)
     conf_path = os.path.join(mc["dir"], "mailcow.conf")
