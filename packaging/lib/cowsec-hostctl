@@ -387,7 +387,7 @@ def auth_failures():
 
 JOBS = {
     "apt-refresh": "apt-get update -q",
-    "upgrade-crowdsec": (
+    "upgrade-crowdsec-legacy": (
         "set -e; ts=$(date +%Y%m%d%H%M%S); tar -czf /root/crowdsec-backup-$ts.tgz /etc/crowdsec; echo \"backup: /root/crowdsec-backup-$ts.tgz\"; "
         "apt-get update -q; DEBIAN_FRONTEND=noninteractive apt-get install -y -q --only-upgrade "
         "-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef " + " ".join(UPGRADABLE) + "; "
@@ -397,7 +397,11 @@ JOBS = {
         "cscli lapi status"),
     "hub-upgrade": "/usr/bin/cscli hub update && /usr/bin/cscli hub upgrade && systemctl reload crowdsec",
     "setup-install": None,  # runs setup_engine.install() (see job_exec)
+    "upgrade-crowdsec": None,  # staged: setup_engine.crowdsec_upgrade
+    "mailcow-check": None,     # ./update.sh --check
+    "mailcow-update": None,    # staged: setup_engine.mailcow_update
 }
+JOBS.pop("upgrade-crowdsec-legacy")
 
 def job_state(name):
     try:
@@ -461,6 +465,41 @@ def setup_install(logp, stp, started):
     save("ok", {"rc": 0, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     return 0
 
+def staged(logp, stp, started, fn):
+    """Runs a staged job, saving per-step progress (and live extras) for the UI."""
+    r = se.Runner(logp)
+    job = {"state": "running", "started": started, "steps": [], "extra": {}}
+    def save():
+        tmp = stp + ".tmp"
+        json.dump(job, open(tmp, "w"))
+        os.replace(tmp, stp)
+    def progress(sid, state, plan=None, **extra):
+        if state == "plan":
+            job["steps"] = [{"id": p["id"], "title": p["title"], "state": "pending"} for p in plan]
+        else:
+            for st in job["steps"]:
+                if st["id"] == sid:
+                    st["state"] = state
+                    if state == "running" and "began" not in st:
+                        st["began"] = time.time()
+                    if state in ("ok", "failed"):
+                        st["ended"] = time.time()
+            job["extra"].update(extra)
+        save()
+    save()
+    try:
+        fn(r, progress)
+        job["state"], rc = "ok", 0
+    except Exception as e:
+        for st in job["steps"]:
+            if st["state"] == "running":
+                st["state"], st["ended"] = "failed", time.time()
+        job["state"], job["error"], rc = "failed", str(e), 1
+        r.log("FAILED: %s" % e)
+    job["rc"], job["finished"] = rc, time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    save()
+    return rc
+
 def job_exec(name):
     os.makedirs(JOB_DIR, mode=0o700, exist_ok=True)
     stp, logp = os.path.join(JOB_DIR, name + ".json"), os.path.join(JOB_DIR, name + ".log")
@@ -470,6 +509,14 @@ def job_exec(name):
     log("job %s started" % name)
     if name == "setup-install":
         rc = setup_install(logp, stp, started)
+    elif name == "upgrade-crowdsec":
+        rc = staged(logp, stp, started, se.crowdsec_upgrade)
+    elif name == "mailcow-update":
+        opts = se.validate_update_options(json.load(open(se.MAILCOW_UPDATE_OPTIONS)))
+        rc = staged(logp, stp, started, lambda r, progress: se.mailcow_update(r, progress, opts))
+    elif name == "mailcow-check":
+        rc = staged(logp, stp, started, lambda r, progress: (progress(None, "plan", [{"id": "check", "title": "Ask mailcow for updates"}]),
+                                                              progress("check", "running"), se.mailcow_check(r), progress("check", "ok")))
     else:
         with open(logp, "w") as lf:
             p = subprocess.run(["bash", "-c", JOBS[name]], stdout=lf, stderr=subprocess.STDOUT, timeout=1800)
@@ -514,7 +561,12 @@ def updates():
                           "last": t.get("LastTriggerUSec") or None, "next": t.get("NextElapseUSecRealtime") or None,
                           "lastResult": res.strip().partition("=")[2] or None},
         "jobs": {n: job_state(n) for n in JOBS if n != "setup-install"},
+        "mailcow": se.mailcow_update_status(),
     }
+
+def b64arg(a):
+    import base64
+    return base64.urlsafe_b64decode(a + "=" * (-len(a) % 4)).decode()
 
 def main():
     cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "").split()
@@ -547,6 +599,16 @@ def main():
             print(json.dumps({"providers": se.dns_providers(), "lego": se.LEGO_VERSION})); return
         if verb == "dns-help" and len(args) == 1:
             print(json.dumps(se.dns_provider_help(args[0]))); return
+        if verb == "mailcow-containers" and not args:
+            print(json.dumps(se.mailcow_containers())); return
+        if verb == "fs-list" and len(args) == 1:
+            print(json.dumps(se.fs_list(b64arg(args[0])))); return
+        if verb == "fs-mkdir" and len(args) == 1:
+            print(json.dumps(se.fs_mkdir(b64arg(args[0])))); return
+        if verb == "mailcow-update-options" and len(args) == 1:
+            o = se.validate_update_options(json.loads(b64arg(args[0])))
+            se.write(se.MAILCOW_UPDATE_OPTIONS, json.dumps(o) + "\n", 0o600)
+            print(json.dumps(o)); return
         if verb == "certs-renew" and not args:
             se.certs_renew(se.Runner(echo=True)); return
     except (ValueError, RuntimeError, se.StepError) as ex:

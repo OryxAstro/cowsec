@@ -171,9 +171,9 @@ It also has safe one-click service actions.
 
 ### Fresh Hay (Updates)
 
-Installed vs available versions for CrowdSec and its bouncers. Upgrades back up `/etc/crowdsec` and keep your config. This page also shows hub updates and the nightly auto-update switch.
+Updates for **mailcow** (with an optional backup first), CrowdSec and its bouncers, and the hub, each run as an animated, staged job with health checks at the end. See [Maintenance](maintenance.md#updating-mailcow).
 
-<p align="center"><img src="img/console/updates.webp" alt="Updates" width="900"></p>
+<p align="center"><img src="img/updates/ready.webp" alt="Updates" width="900"></p>
 
 ### Herd Rules (Ban policy)
 

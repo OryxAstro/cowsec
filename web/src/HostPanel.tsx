@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -85,6 +85,38 @@ export function Card({ title, icon, children, right }: { title: string; icon: Re
   );
 }
 
+// Counts numbers up when they first appear or change ("37,903" animates from the last value).
+export function useCountUp(target: number, ms = 900) {
+  const [v, setV] = useState(target);
+  const from = useRef(0);
+  useEffect(() => {
+    if (!Number.isFinite(target)) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setV(target);
+      return;
+    }
+    const start = performance.now(), a = from.current;
+    let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - start) / ms);
+      const e = 1 - Math.pow(1 - k, 3);
+      setV(Math.round(a + (target - a) * e));
+      if (k < 1) raf = requestAnimationFrame(step);
+      else from.current = target;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return v;
+}
+
+function AnimatedValue({ value }: { value: string }) {
+  // Animate plain numbers like "37,903" or "18"; leave text ("Herd safe", "63d", "18%") untouched.
+  const m = /^-?[\d,]+$/.test(value.trim()) ? Number(value.replace(/,/g, '')) : NaN;
+  const n = useCountUp(Number.isFinite(m) ? m : 0);
+  return <>{Number.isFinite(m) ? n.toLocaleString() : value}</>;
+}
+
 export function Tile({ label, value, sub, tone, icon }: { label: string; value: string; sub: string; tone: 'emerald' | 'amber' | 'rose' | 'sky' | 'indigo'; icon: ReactNode }) {
   const tones = {
     emerald: 'from-emerald-500/15 border-emerald-500/30 text-emerald-300',
@@ -94,12 +126,12 @@ export function Tile({ label, value, sub, tone, icon }: { label: string; value: 
     indigo: 'from-indigo-500/15 border-indigo-500/30 text-indigo-300',
   }[tone];
   return (
-    <div className={`rounded-2xl border bg-gradient-to-br to-transparent p-4 ${tones}`}>
+    <div className={`rounded-2xl border bg-gradient-to-br to-transparent p-4 transition-transform duration-200 hover:-translate-y-0.5 ${tones}`}>
       <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         <span>{label}</span>
         {icon}
       </div>
-      <p className="mt-2 text-2xl font-extrabold text-white font-mono tabular-nums">{value}</p>
+      <p className="mt-2 text-2xl font-extrabold text-white font-mono tabular-nums"><AnimatedValue value={value} /></p>
       <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>
     </div>
   );

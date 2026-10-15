@@ -349,6 +349,7 @@ export default function SetupWizard() {
         ))}
       </ol>
 
+      <div key={step} className="cs-page">
       {step === 0 && (
         <div className="space-y-4">
           <div>
@@ -597,16 +598,31 @@ export default function SetupWizard() {
               <li>• OpenResty edge + WAF: <b>{comp.edge ? 'yes' : 'no'}</b>{comp.edge && comp.adminLanOnly ? ' · admin pages LAN-only' : ''}{comp.edge && comp.cloudflareRealIP ? ' · Cloudflare real IP' : ''}</li>
               <li>• Certificates: <b>{certMode === 'dns01' ? `DNS-01 via ${provider} · ${domains.length} domain(s) · ${perDomain ? 'per domain' : 'shared'}${wildcard ? ' · wildcard' : ''}${staging ? ' · STAGING' : ''}` : "mailcow's own"}</b></li>
               <li>• Console: <b>{access === 'lan' ? `LAN at ${hostname}` : access === 'wan' ? `internet at ${hostname}` : access === 'tunnel' ? 'Cloudflare Tunnel' : 'this server only'}</b></li>
-              <li>• Smart ban policy: <b>{comp.banPolicy ? 'yes' : 'no'}</b> · Precise clock: <b>{comp.chronyPtp ? 'yes' : 'no'}</b></li>
+              <li>• Smart ban policy: <b>{comp.banPolicy ? 'yes' : 'no'}</b> · Accurate clock: <b>{comp.chronyPtp ? 'yes' : 'no'}</b> · mailcow management: <b>{comp.mailcowApi ? 'yes' : 'no'}</b></li>
             </ul>
           )}
           {job && (
             <>
-              <ul className="space-y-1.5">
+              {(() => {
+                const st = job.steps || [];
+                const done = st.filter((x) => x.state === 'ok').length + (st.some((x) => x.state === 'running') ? 0.5 : 0);
+                const pct = st.length ? Math.round((done / st.length) * 100) : 3;
+                return (
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`h-full transition-all duration-700 ${job.state === 'failed' ? 'bg-rose-500' : 'bg-gradient-to-r from-indigo-500 via-sky-400 to-emerald-400'} ${job.state === 'running' ? 'cs-shimmer' : ''}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-sm font-mono font-bold text-white w-12 text-right">{pct}%</span>
+                  </div>
+                );
+              })()}
+              <ul className="space-y-1.5 cs-stagger">
                 {(job.steps || []).map((s) => (
-                  <li key={s.id} className="flex items-center gap-2.5 text-sm">
-                    {s.state === 'ok' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : s.state === 'failed' ? <XCircle className="w-4 h-4 text-rose-400" /> : s.state === 'running' ? <Loader2 className="w-4 h-4 animate-spin text-sky-300" /> : <Circle className="w-4 h-4 text-slate-600" />}
-                    <span className={s.state === 'pending' ? 'text-slate-500' : 'text-slate-200'}>{s.title}</span>
+                  <li key={s.id} className={`flex items-center gap-2.5 text-sm rounded-lg px-2 py-1 transition-colors duration-500 ${s.state === 'running' ? 'bg-sky-500/10' : ''}`}>
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center ${s.state === 'running' ? 'cs-ring' : ''}`}>
+                      {s.state === 'ok' ? <CheckCircle2 key="ok" className="w-4 h-4 text-emerald-400 cs-pop" /> : s.state === 'failed' ? <XCircle className="w-4 h-4 text-rose-400 cs-pop" /> : s.state === 'running' ? <Loader2 className="w-4 h-4 animate-spin text-sky-300" /> : <Circle className="w-4 h-4 text-slate-600" />}
+                    </span>
+                    <span className={s.state === 'pending' ? 'text-slate-500' : s.state === 'running' ? 'text-white font-semibold' : 'text-slate-200'}>{s.title}</span>
                   </li>
                 ))}
                 {!job.steps?.length && <li className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /> Starting…</li>}
@@ -617,6 +633,8 @@ export default function SetupWizard() {
           )}
         </div>
       )}
+
+      </div>
 
       {step !== 5 || !job || job.state !== 'running' ? <div className="mt-5"><ErrorLine text={error} /></div> : null}
 

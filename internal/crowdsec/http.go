@@ -65,6 +65,52 @@ func Routes(cr chi.Router, t *Target) {
 		}
 		json.NewEncoder(w).Encode(res)
 	})
+	hostGet("/host/mailcow/containers", t.MailcowContainers)
+	cr.Get("/host/jobs/{job}", func(w http.ResponseWriter, r *http.Request) {
+		v, err := t.HostJobState(chi.URLParam(r, "job"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(v)
+	})
+	cr.Get("/host/fs", func(w http.ResponseWriter, r *http.Request) {
+		v, err := t.HostListDir(r.URL.Query().Get("path"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(v)
+	})
+	cr.Post("/host/fs/mkdir", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		v, err := t.HostMakeDir(req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(v)
+	})
+	cr.Put("/host/mailcow/update-options", func(w http.ResponseWriter, r *http.Request) {
+		var o map[string]interface{}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&o); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		v, err := t.SetMailcowUpdateOptions(o)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(v)
+	})
 	cr.Post("/host/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Job string `json:"job"`

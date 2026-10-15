@@ -353,3 +353,40 @@ main .bg-slate-950\/80 {
     animation: none;
   }
 }
+
+/* ================================================================
+   COWSEC MOTION (respects prefers-reduced-motion)
+   ================================================================ */
+@keyframes cs-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes cs-pop { 0% { transform: scale(.4); opacity: 0; } 70% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes cs-ring { 0% { box-shadow: 0 0 0 0 var(--ring, rgba(56, 189, 248, .55)); } 100% { box-shadow: 0 0 0 14px rgba(56, 189, 248, 0); } }
+@keyframes cs-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes cs-flow { to { stroke-dashoffset: -24; } }
+@keyframes cs-shake { 0%, 100% { transform: none; } 20%, 60% { transform: translateX(-3px); } 40%, 80% { transform: translateX(3px); } }
+@keyframes cs-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes cs-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.cs-page { animation: cs-fade-up .35s ease-out both; }
+.cs-pop { animation: cs-pop .45s cubic-bezier(.2, .9, .3, 1.4) both; }
+.cs-ring { animation: cs-ring 1.4s ease-out infinite; }
+.cs-shake { animation: cs-shake .45s ease-in-out both; }
+.cs-breathe { animation: cs-breathe 2.2s ease-in-out infinite; }
+.cs-stagger > * { animation: cs-fade-up .4s ease-out both; }
+.cs-stagger > *:nth-child(2) { animation-delay: .06s; } .cs-stagger > *:nth-child(3) { animation-delay: .12s; }
+.cs-stagger > *:nth-child(4) { animation-delay: .18s; } .cs-stagger > *:nth-child(5) { animation-delay: .24s; }
+.cs-stagger > *:nth-child(6) { animation-delay: .3s; } .cs-stagger > *:nth-child(7) { animation-delay: .36s; }
+.cs-stagger > *:nth-child(n+8) { animation-delay: .42s; }
+.cs-shimmer {
+  background-image: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .14) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: cs-shimmer 1.6s linear infinite;
+}
+.cs-flow { stroke-dasharray: 6 6; animation: cs-flow .9s linear infinite; }
+.cs-grow { transform-origin: left; animation: cs-grow .6s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-page, .cs-pop, .cs-ring, .cs-shake, .cs-breathe, .cs-stagger > *, .cs-shimmer, .cs-flow, .cs-grow { animation: none !important; }
+}
+@keyframes cs-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.cs-float { animation: cs-float 4.5s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cs-float { animation: none !important; } }

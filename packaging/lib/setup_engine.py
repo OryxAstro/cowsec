@@ -1060,3 +1060,298 @@ def install(c, r, progress=None):
         if progress:
             progress(sid, "ok")
     r.log("=== setup complete")
+
+
+# ---------------------------------------------------------------- mailcow updates
+
+MAILCOW_UPDATE_CACHE = os.path.join(STATE_DIR, "mailcow-update.json")
+MAILCOW_UPDATE_OPTIONS = os.path.join(STATE_DIR, "mailcow-update.options.json")
+DEFAULT_BACKUP_DIR = "/var/backups/cowsec/mailcow"  # parent is root-only (0700)
+# Directories the folder picker never offers (pseudo filesystems and the OS itself).
+FS_DENY = ("/proc", "/sys", "/dev", "/run", "/boot", "/bin", "/sbin", "/lib", "/lib64", "/usr", "/etc", "/snap")
+
+
+def mailcow_version(mc_dir):
+    rc, tag = run(["git", "-C", mc_dir, "describe", "--tags", "--abbrev=0"])
+    rc2, branch = run(["git", "-C", mc_dir, "rev-parse", "--abbrev-ref", "HEAD"])
+    rc3, commit = run(["git", "-C", mc_dir, "rev-parse", "--short", "HEAD"])
+    rc4, date = run(["git", "-C", mc_dir, "log", "-1", "--format=%cs"])
+    return {"tag": tag if rc == 0 else None, "branch": branch if rc2 == 0 else None,
+            "commit": commit if rc3 == 0 else None, "date": date if rc4 == 0 else None}
+
+
+def mailcow_update_status():
+    mc = find_mailcow()
+    if not mc:
+        return {"found": False}
+    cache = {}
+    if os.path.exists(MAILCOW_UPDATE_CACHE):
+        try:
+            cache = json.load(open(MAILCOW_UPDATE_CACHE))
+        except Exception:
+            cache = {}
+    opts = {"backup": True, "path": DEFAULT_BACKUP_DIR, "keepDays": 14}
+    if os.path.exists(MAILCOW_UPDATE_OPTIONS):
+        try:
+            opts.update(json.load(open(MAILCOW_UPDATE_OPTIONS)))
+        except Exception:
+            pass
+    return {"found": True, "dir": mc, "version": mailcow_version(mc), "check": cache, "options": opts,
+            "defaultBackupDir": DEFAULT_BACKUP_DIR}
+
+
+def mailcow_check(r):
+    """./update.sh --check: exit 0 = update available, 3 = up to date."""
+    mc = find_mailcow()
+    rc, out = r.sh(["./update.sh", "--check"], cwd=mc, check=False, timeout=300)
+    state = {0: "available", 3: "current"}.get(rc, "error")
+    res = {"state": state, "checked": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "detail": out.splitlines()[-1][:300] if out else ""}
+    write(MAILCOW_UPDATE_CACHE, json.dumps(res) + "\n", 0o600)
+    if state == "error":
+        raise StepError("update check failed (exit %d)" % rc)
+    r.log("mailcow update %s" % ("available" if state == "available" else "not needed: already current"))
+    return res
+
+
+def safe_dir(path, must_exist=True):
+    """Validates a directory for backups: absolute, resolved, outside system directories."""
+    if not isinstance(path, str) or not path.startswith("/") or "\x00" in path or len(path) > 4096:
+        raise StepError("choose an absolute path")
+    real = os.path.realpath(path)
+    if real == "/" or any(real == d or real.startswith(d + "/") for d in FS_DENY):
+        raise StepError("%s is a system directory; choose another location" % real)
+    mc = find_mailcow()
+    if mc and (real == os.path.realpath(mc) or real.startswith(os.path.realpath(mc) + "/")):
+        raise StepError("don't keep backups inside the mailcow directory")
+    if must_exist and not os.path.isdir(real):
+        raise StepError("%s is not a directory" % real)
+    return real
+
+
+def fs_list(path):
+    """Lists sub-directories for the folder picker (a path that doesn't exist yet shows its
+    nearest existing parent)."""
+    real = os.path.realpath(path or "/")
+    while not os.path.isdir(real) and real != "/":
+        real = os.path.dirname(real)
+    entries = []
+    try:
+        names = sorted(os.listdir(real), key=str.lower)
+    except PermissionError:
+        names = []
+    for n in names:
+        p = os.path.join(real, n)
+        if not os.path.isdir(p) or os.path.islink(p):
+            continue
+        denied = p in FS_DENY or any(p.startswith(d + "/") for d in FS_DENY)
+        entries.append({"name": n, "path": p, "selectable": not denied, "hidden": n.startswith(".")})
+    st = os.statvfs(real)
+    parts, acc = [], ""
+    for seg in [s for s in real.split("/") if s]:
+        acc += "/" + seg
+        parts.append({"name": seg, "path": acc})
+    try:
+        safe_dir(real)
+        selectable = True
+    except StepError:
+        selectable = False
+    return {"path": real, "parent": os.path.dirname(real) if real != "/" else None, "crumbs": parts, "dirs": entries,
+            "selectable": selectable, "freeBytes": st.f_bavail * st.f_frsize, "totalBytes": st.f_blocks * st.f_frsize}
+
+
+def fs_mkdir(path):
+    path = path.rstrip("/")
+    parent, name = os.path.dirname(path) or "/", os.path.basename(path)
+    if not os.path.isdir(os.path.realpath(parent)):
+        raise StepError("%s does not exist" % parent)
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name) or name in (".", ".."):
+        raise StepError("folder names may use letters, digits, . _ and -")
+    target = safe_dir(os.path.join(os.path.realpath(parent), name), must_exist=False)
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    return fs_list(target)
+
+
+def validate_update_options(o):
+    if not isinstance(o, dict):
+        raise StepError("bad options")
+    out = {"backup": bool(o.get("backup", True)), "path": DEFAULT_BACKUP_DIR, "keepDays": 14}
+    if out["backup"]:
+        out["path"] = safe_dir(str(o.get("path") or DEFAULT_BACKUP_DIR), must_exist=False)
+    kd = o.get("keepDays", 14)
+    if not isinstance(kd, int) or not 0 <= kd <= 3650:
+        raise StepError("keep backups for 0-3650 days")
+    out["keepDays"] = kd
+    return out
+
+
+def crowdsec_upgrade(r, progress):
+    """Staged CrowdSec + bouncer upgrade with a config backup and tests before restarts."""
+    steps = [("backup", "Back up /etc/crowdsec"), ("refresh", "Check package versions"), ("upgrade", "Upgrade CrowdSec and bouncers"),
+             ("test", "Test the configuration"), ("restart", "Restart the engine and bouncers"), ("verify", "Verify everything is protecting")]
+    progress(None, "plan", [{"id": s, "title": t} for s, t in steps])
+    pkgs = [p for p in ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer")
+            if run(["dpkg-query", "-W", "-f=${Status}", p])[1] == "install ok installed"]
+    for sid, title in steps:
+        progress(sid, "running")
+        r.log("=== " + title)
+        if sid == "backup":
+            dst = "/root/crowdsec-backup-%s.tgz" % time.strftime("%Y%m%d%H%M%S")
+            r.sh(["tar", "-czf", dst, "/etc/crowdsec"])
+            progress(sid, "running", backup=dst)
+        elif sid == "refresh":
+            r.sh(["apt-get", "update", "-q"])
+        elif sid == "upgrade":
+            r.sh(["apt-get", "install", "-y", "-q", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"] + pkgs, timeout=1800)
+        elif sid == "test":
+            r.sh(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"])
+            if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
+                r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"])
+        elif sid == "restart":
+            r.sh(["systemctl", "restart", "crowdsec"])
+            time.sleep(5)
+            r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"])
+            if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
+                r.sh(["systemctl", "reload", "openresty"])
+        elif sid == "verify":
+            time.sleep(3)
+            checks = []
+            for svc in ["crowdsec", "crowdsec-firewall-bouncer"] + (["openresty"] if os.path.exists("/lib/systemd/system/openresty.service") else []):
+                ok = run(["systemctl", "is-active", "--quiet", svc])[0] == 0
+                checks.append({"name": svc + " running", "ok": ok, "detail": ""})
+            rc, out = run(["cscli", "lapi", "status"])
+            checks.append({"name": "Local API answers", "ok": rc == 0, "detail": ""})
+            rc, out = run(["iptables", "-S", "DOCKER-USER"])
+            checks.append({"name": "Firewall covers mail ports", "ok": "CROWDSEC" in out.upper(), "detail": ""})
+            progress(sid, "running", checks=checks)
+            if not all(c["ok"] for c in checks):
+                raise StepError("some checks failed: " + ", ".join(c["name"] for c in checks if not c["ok"]))
+        progress(sid, "ok")
+    r.log("=== CrowdSec upgraded")
+
+
+def mailcow_containers():
+    """Container states straight from Docker (works while mailcow's API is down mid-update)."""
+    info = mailcow_info()
+    out = []
+    for svc, c in sorted((info.get("containers") or {}).items()):
+        st = c["status"]
+        out.append({"service": svc, "name": c["name"], "up": st.startswith("Up"), "healthy": "unhealthy" not in st,
+                    "starting": "starting" in st, "status": st})
+    return {"containers": out, "total": len(out), "up": sum(1 for c in out if c["up"])}
+
+
+def mailcow_post_checks(r, ctx_certs=True):
+    """Verifies everything CowSec set up still works after mailcow changed under it."""
+    mc = mailcow_info()
+    conf = read_kv(os.path.join(mc["dir"], "mailcow.conf"))
+    results = []
+
+    def check(name, ok, detail=""):
+        results.append({"name": name, "ok": bool(ok), "detail": detail})
+        r.log(("✔ " if ok else "✘ ") + name + (": " + detail if detail else ""))
+
+    # containers
+    for _ in range(60):
+        c = mailcow_containers()
+        if c["total"] and c["up"] == c["total"] and not any(x["starting"] for x in c["containers"]):
+            break
+        time.sleep(10)
+    check("All mailcow containers running", c["up"] == c["total"], "%d/%d up" % (c["up"], c["total"]))
+    # web server behind the edge
+    port = conf.get("HTTPS_PORT", "443")
+    rc, code = run(["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "-m", "15", "https://127.0.0.1:%s/" % port])
+    check("mailcow web answers on 127.0.0.1:%s" % port, code in ("200", "301", "302"), "HTTP %s" % code)
+    if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
+        rc, code = run(["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "-m", "15", "-H", "Host: " + conf.get("MAILCOW_HOSTNAME", ""), "https://127.0.0.1/"])
+        check("Edge reaches mailcow", code in ("200", "301", "302"), "HTTP %s" % code)
+    # firewall
+    rc, out = run(["iptables", "-S", "DOCKER-USER"])
+    if "CROWDSEC" not in out.upper():
+        r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"], check=False)
+        time.sleep(5)
+        rc, out = run(["iptables", "-S", "DOCKER-USER"])
+    check("Firewall bouncer covers mail ports (DOCKER-USER)", "CROWDSEC" in out.upper())
+    # log acquisition
+    acq = CS_DIR + "/acquis.d/cowsec-mailcow.yaml"
+    names = {x["name"] for x in mc.get("containers", {}).values()}
+    if os.path.exists(acq):
+        wanted = re.findall(r"^\s+-\s+(\S+-mailcow-\S+)$", open(acq).read(), re.M)
+        missing = [w for w in wanted if w not in names]
+        if missing:
+            c0 = {"components": {"edge": run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0}}
+            write(acq, mailcow_acquis(c0, mc), r=r)
+            r.sh(["systemctl", "reload", "crowdsec"], check=False)
+        check("CrowdSec reads postfix and dovecot", True, "container names %s" % ("updated" if missing else "unchanged"))
+    # per-domain certificates
+    if ctx_certs and os.path.exists(ETC_DIR + "/certs.json"):
+        extra = os.path.join(mc["dir"], "data/conf/postfix/extra.cf")
+        ok = os.path.exists(extra) and "cowsec-sni" in open(extra).read()
+        skip = conf.get("SKIP_LETS_ENCRYPT", "n").lower() in ("y", "yes")
+        check("DNS-01 certificates still in place", ok and skip, "SNI map %s, SKIP_LETS_ENCRYPT=%s" % ("present" if ok else "missing", conf.get("SKIP_LETS_ENCRYPT")))
+    return results
+
+
+def prepare_backup_dir(path, r):
+    """mailcow's backup script requires the folder to be readable and traversable by others
+    (its containers write into it). Keep the backups private by putting that folder inside a
+    root-only parent: the default /var/backups/cowsec is created 0700."""
+    if path == DEFAULT_BACKUP_DIR:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        os.chmod(os.path.dirname(path), 0o700)
+    os.makedirs(path, exist_ok=True)
+    mode = os.stat(path).st_mode & 0o777
+    if mode & 0o005 != 0o005:
+        os.chmod(path, mode | 0o005)
+        r.log("made %s traversable for mailcow's backup containers (mode %o)" % (path, mode | 0o005))
+    parent_private = any((os.stat(p).st_mode & 0o001) == 0 for p in _parents(path))
+    if not parent_private:
+        r.log("note: backups in %s are readable by local users; prefer a folder inside a root-only (0700) parent" % path)
+
+
+def _parents(path):
+    p = os.path.dirname(path)
+    while p and p != "/":
+        yield p
+        p = os.path.dirname(p)
+
+
+def mailcow_update(r, progress, opts):
+    """Staged mailcow update: optional backup, prefetch, update.sh --force, health checks."""
+    mc = find_mailcow()
+    steps = []
+    if opts.get("backup"):
+        steps.append(("backup", "Back up mail, config and database"))
+    steps += [("prefetch", "Download new images"), ("update", "Run mailcow's update.sh"), ("health", "Wait for the herd to come back"), ("checks", "Check CowSec's protections")]
+    progress(None, "plan", [{"id": s, "title": t} for s, t in steps])
+    for sid, title in steps:
+        progress(sid, "running")
+        r.log("=== " + title)
+        if sid == "backup":
+            path = safe_dir(opts["path"], must_exist=False)
+            prepare_backup_dir(path, r)
+            env = {"MAILCOW_BACKUP_LOCATION": path, "THREADS": str(max(1, (os.cpu_count() or 2) // 2))}
+            args = ["./helper-scripts/backup_and_restore.sh", "backup", "all"]
+            if int(opts.get("keepDays") or 0) > 0:
+                args += ["--delete-days", str(int(opts["keepDays"]))]
+            r.sh(args, cwd=mc, env=env, timeout=6 * 3600)
+        elif sid == "prefetch":
+            r.sh(["./update.sh", "--prefetch", "--skip-ping-check"], cwd=mc, timeout=3600)
+        elif sid == "update":
+            r.sh(["./update.sh", "--force", "--skip-ping-check"], cwd=mc, timeout=3600)
+        elif sid == "health":
+            for _ in range(90):
+                c = mailcow_containers()
+                progress(sid, "running", containers=c)
+                if c["total"] and c["up"] == c["total"] and not any(x["starting"] for x in c["containers"]):
+                    break
+                time.sleep(5)
+            else:
+                raise StepError("not all containers came back within 7 minutes")
+        elif sid == "checks":
+            res = mailcow_post_checks(r)
+            progress(sid, "running", checks=res)
+            if not all(x["ok"] for x in res):
+                raise StepError("some checks failed: " + ", ".join(x["name"] for x in res if not x["ok"]))
+        progress(sid, "ok")
+    write(MAILCOW_UPDATE_CACHE, json.dumps({"state": "current", "checked": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "detail": "updated by CowSec"}) + "\n", 0o600)
+    r.log("=== mailcow updated")

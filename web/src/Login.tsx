@@ -200,7 +200,7 @@ export default function Login({ onSignedIn, notice }: { onSignedIn: (id: Identit
         <div className="flex flex-col items-center text-center mb-7">
           <div className="relative mb-4">
             <div className="absolute inset-0 rounded-3xl blur-2xl opacity-60" style={{ background: 'var(--accent-glow)' }} />
-            <CowSecLogo className="relative w-20 h-20 drop-shadow-[0_8px_24px_rgba(16,185,129,0.5)]" />
+            <CowSecLogo className="relative w-20 h-20 drop-shadow-[0_8px_24px_rgba(16,185,129,0.5)] cs-float" />
           </div>
           <div className="flex items-center space-x-2.5">
             <h1 className="font-extrabold text-3xl tracking-tight bg-gradient-to-r from-white via-sky-100 to-indigo-300 bg-clip-text text-transparent">

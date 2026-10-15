@@ -76,7 +76,8 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 
 **🖥️ Console & setup**
 - **Browser setup wizard** with pre-flight checks, live progress, backups and automatic rollback.
-- Console for bans, alerts, the WAF, the hub, bouncers, policy and **one-click updates**.
+- Console for bans, alerts, the WAF, the hub, bouncers and policy.
+- **One-click updates** for mailcow (with backup), CrowdSec and the hub, shown as an animated pipeline with health checks.
 - **2FA sign-in** (TOTP or Duo), local accounts or LDAP, audit log.
 - Reach it on your **LAN**, through a **Cloudflare Tunnel**, the internet, or SSH only.
 
@@ -132,7 +133,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | Console | |
 |---|---|
 | <img src="docs/img/console/ban-policy.webp" alt="Ban policy"> | <img src="docs/img/console/decisions.webp" alt="Decisions"> |
-| <img src="docs/img/console/appsec-waf.webp" alt="AppSec WAF"> | <img src="docs/img/console/updates.webp" alt="Updates"> |
+| <img src="docs/img/console/appsec-waf.webp" alt="AppSec WAF"> | <img src="docs/img/updates/finished.webp" alt="mailcow update with health checks"> |
 
 | mailcow management | |
 |---|---|

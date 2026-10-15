@@ -15,7 +15,7 @@ Settings, accounts, the ban policy and certificates are kept.
 
 <p align="center"><img src="assets/upgrade-flow.svg" alt="Safe upgrade steps" width="100%"></p>
 
-<p align="center"><img src="img/console/updates.webp" alt="Fresh Hay: the updates page" width="900"></p>
+<p align="center"><img src="img/updates/ready.webp" alt="Fresh Hay: the updates page" width="900"></p>
 
 Use **Fresh Hay (Updates)** in the console:
 
@@ -28,9 +28,38 @@ Use **Fresh Hay (Updates)** in the console:
 
 Upgrades are signed apt packages; OpenResty and cloudflared update with your normal system updates.
 
-## mailcow updates
+## Updating mailcow
 
-`./update.sh` is safe. CowSec only uses mailcow's supported settings (`mailcow.conf`, `data/conf/postfix/extra.cf`, `data/assets/ssl`), and reads containers by their Compose labels, so renamed or recreated containers are picked up.
+**Fresh Hay → mailcow** checks for new mailcow releases (`update.sh --check`) and runs the update for you as a staged, animated job:
+
+<p align="center"><img src="img/updates/stage-update.webp" alt="mailcow update in progress" width="900"></p>
+
+1. **Back up** mail, configuration and database with mailcow's own `backup_and_restore.sh` (optional, on by default).
+2. **Download** the new images first (`update.sh --prefetch`), so the downtime window is short.
+3. **Update** with `update.sh --force`. Mail is offline for a few minutes while containers restart.
+4. **Wait for the herd**: every container is watched live until it is up and healthy.
+5. **Check CowSec's protections**:
+   - the edge still reaches mailcow's web server;
+   - the firewall bouncer still covers `DOCKER-USER`;
+   - CrowdSec still reads postfix and dovecot (container names are refreshed if they changed);
+   - your DNS-01 certificates and SNI map are still in place.
+
+<p align="center"><img src="img/updates/finished.webp" alt="Update finished: stages, containers and health checks" width="900"></p>
+
+Branch switches (stable ↔ nightly) are never automated. mailcow refuses them in unattended mode, so run `./update.sh` yourself for those.
+
+### Where backups go
+
+<p align="center"><img src="img/updates/folder-picker.webp" alt="Choosing a backup folder on the server" width="760"></p>
+
+The default is `/var/backups/cowsec/mailcow`. Click the folder icon to browse the server and pick or create another folder. You can also choose how many days of backups to keep (`--delete-days`).
+
+> [!NOTE]
+> mailcow's backup script requires its backup folder to be readable and traversable by other users, because its containers write into it. CowSec keeps backups private by putting the default folder inside `/var/backups/cowsec`, which is root-only (0700). If you choose your own folder, place it inside a root-only parent as well.
+
+### Updating from the terminal
+
+`cd /opt/mailcow-dockerized && sudo ./update.sh` still works exactly as before. CowSec's changes live in places `update.sh` keeps. Afterwards, the **Barn Status** page shows whether everything came back.
 
 ## Changing your choices
 

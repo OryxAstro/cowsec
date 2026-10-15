@@ -1,6 +1,7 @@
 package crowdsec
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -157,7 +158,7 @@ func (t *Target) HostAuthFailures() (map[string]interface{}, error) {
 }
 
 // HostJobs are the long-running maintenance jobs the helper runs in the background.
-var HostJobs = []string{"apt-refresh", "upgrade-crowdsec", "hub-upgrade"}
+var HostJobs = []string{"apt-refresh", "upgrade-crowdsec", "hub-upgrade", "mailcow-check", "mailcow-update"}
 
 // HostUpdates returns package versions, hub item updates, the nightly hub auto-update
 // timer and the state of background jobs.
@@ -177,4 +178,40 @@ func (t *Target) StartHostJob(job string) error {
 	t.invalidate()
 	_, err := t.gate("job", job)
 	return err
+}
+
+func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+
+// HostJobState returns one background job's state, steps and live extras.
+func (t *Target) HostJobState(job string) (map[string]interface{}, error) {
+	for _, j := range HostJobs {
+		if j == job {
+			return t.gateJSON("job-state", job)
+		}
+	}
+	return nil, fmt.Errorf("unknown job %q", job)
+}
+
+// HostListDir lists sub-directories for the backup folder picker.
+func (t *Target) HostListDir(path string) (map[string]interface{}, error) {
+	if path == "" {
+		path = "/"
+	}
+	return t.gateJSON("fs-list", b64(path))
+}
+
+// HostMakeDir creates a folder for backups (validated by the helper).
+func (t *Target) HostMakeDir(path string) (map[string]interface{}, error) {
+	return t.gateJSON("fs-mkdir", b64(path))
+}
+
+// MailcowContainers returns container states from Docker (works during an update).
+func (t *Target) MailcowContainers() (map[string]interface{}, error) {
+	return t.gateJSON("mailcow-containers")
+}
+
+// SetMailcowUpdateOptions validates and stores the backup choice for mailcow updates.
+func (t *Target) SetMailcowUpdateOptions(o map[string]interface{}) (map[string]interface{}, error) {
+	b, _ := json.Marshal(o)
+	return t.gateJSON("mailcow-update-options", b64(string(b)))
 }

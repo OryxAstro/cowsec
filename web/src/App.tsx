@@ -211,7 +211,9 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
         </aside>
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
           <ErrorBoundary resetKey={tab}>
+            <div key={tab} className="cs-page">
             {tab in MAIL_PAGES ? MAIL_PAGES[tab as MailTab]() : <CrowdSecConsole csSubTab={tab as CsSubTabType} />}
+            </div>
           </ErrorBoundary>
         </main>
       </div>
