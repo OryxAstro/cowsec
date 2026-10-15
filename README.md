@@ -22,6 +22,14 @@
   <a href="docs/troubleshooting.md">Troubleshooting</a>
 </p>
 
+<p align="center">
+  <a href="https://buymeacoffee.com/OryxAstro"><img alt="Buy Bessie a latte" src="https://img.shields.io/badge/Buy%20Bessie%20a%20latte-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=000000"></a>
+  <a href="https://ko-fi.com/OryxAstro"><img alt="Buy Bessie some hay on Ko-fi" src="https://img.shields.io/badge/Buy%20Bessie%20some%20hay-ff5e5b?style=for-the-badge&logo=kofi&logoColor=ffffff"></a>
+  <a href="https://github.com/OryxAstro"><img alt="Follow the herd" src="https://img.shields.io/github/followers/OryxAstro?label=Follow%20the%20herd&style=for-the-badge&logo=github&color=0b1530&labelColor=050a18"></a>
+  <a href="https://github.com/OryxAstro/cowsec/stargazers"><img alt="Star the repo" src="https://img.shields.io/github/stars/OryxAstro/cowsec?label=Stars&style=for-the-badge&logo=github&color=0b1530&labelColor=050a18"></a>
+</p>
+<p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
+
 ---
 
 <p align="center">
@@ -162,6 +170,22 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🗺️ [Architecture](docs/architecture.md) | How the pieces fit together |
 | 🧭 [Roadmap](docs/roadmap.md) | What's next: deeper mailcow control, a modern white-label webmail client |
 
+## 🥛 Feed the cow
+
+CowSec is free and always will be. Bessie works the night shift, eats spammers for breakfast and has never taken a sick day, but she does run on hay and coffee.
+
+If CowSec saved you a weekend, a blocklisting or an awkward call from a customer, please toss a coin in the milk pail:
+
+<p align="center">
+  <a href="https://buymeacoffee.com/OryxAstro"><img alt="Buy Bessie a latte" src="https://img.shields.io/badge/☕%20Buy%20Bessie%20a%20latte-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=000000"></a>
+  <a href="https://ko-fi.com/OryxAstro"><img alt="Buy Bessie some hay on Ko-fi" src="https://img.shields.io/badge/🌾%20Buy%20Bessie%20some%20hay-ff5e5b?style=for-the-badge&logo=kofi&logoColor=ffffff"></a>
+</p>
+
+Can't spare a coin? These are free and make her moo with joy:
+- ⭐ **Star the repo.** It helps other mailcow admins find the farm.
+- 👣 **[Follow the herd](https://github.com/OryxAstro)** for new releases and other projects.
+- 🐛 **Report a bug or share an idea** in [Issues](https://github.com/OryxAstro/cowsec/issues). Bessie reads every one, slowly, while chewing.
+
 ## Building from source
 
 ```bash
@@ -171,3 +195,11 @@ python3 docs/assets/src/generate.py   # regenerate the documentation artwork
 ```
 
 Tagged releases (`v*`) are built and published by GitHub Actions with a `SHA256SUMS` file.
+
+## License
+
+Copyright © 2026 OryxAstro.
+
+CowSec is free software, licensed under the [GNU Affero General Public License v3.0](LICENSE). You can use, study, change and share it. If you distribute a modified version, or run one for other people over a network, you must share its source code under the same licence.
+
+CowSec installs and works alongside other projects that keep their own licences: mailcow (GPL-3.0), CrowdSec, OpenResty and others. It contains none of their code. "mailcow" and "CrowdSec" are trademarks of their respective owners; CowSec is an independent project and is not affiliated with or endorsed by either. Country flags are [Twemoji](https://github.com/twitter/twemoji) graphics (© Twitter and contributors), licensed CC-BY 4.0.

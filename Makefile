@@ -40,6 +40,7 @@ deb: web bin test
 	mkdir -p $(PKG)/usr/share/cowsec/ui $(PKG)/usr/share/doc/cowsec $(PKG)/DEBIAN
 	cp -r web/dist/. $(PKG)/usr/share/cowsec/ui/
 	cp README.md $(PKG)/usr/share/doc/cowsec/
+	cp LICENSE $(PKG)/usr/share/doc/cowsec/copyright
 	sed 's/@VERSION@/$(DEB_VERSION)/' packaging/deb/control.in > $(PKG)/DEBIAN/control
 	install -m 0755 packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm $(PKG)/DEBIAN/
 	find $(PKG) -name __pycache__ -prune -exec rm -rf {} +
