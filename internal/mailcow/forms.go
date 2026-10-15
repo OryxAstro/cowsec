@@ -23,6 +23,8 @@ type domainIn struct {
 	RelayUnknownOnly   *bool     `json:"relay_unknown_only"`
 	GAL                *bool     `json:"gal"`
 	Tags               *[]string `json:"tags"`
+	RLValue            *int      `json:"rl_value"` // only when adding; later changes go through /ratelimits
+	RLFrame            *string   `json:"rl_frame"`
 }
 
 func (in domainIn) attrs() (map[string]interface{}, error) {
@@ -55,6 +57,12 @@ func (in domainIn) attrs() (map[string]interface{}, error) {
 		}
 		a["tags"] = t
 	}
+	if in.RLValue != nil && *in.RLValue > 0 {
+		if *in.RLValue > 1000000 || in.RLFrame == nil || !rlFrames[*in.RLFrame] {
+			return nil, fmt.Errorf("a rate limit is a number of messages per s, m, h or d")
+		}
+		a["rl_value"], a["rl_frame"] = strconv.Itoa(*in.RLValue), *in.RLFrame
+	}
 	return a, nil
 }
 
@@ -66,6 +74,8 @@ type mailboxIn struct {
 	Quota                  *int      `json:"quota"`
 	Active                 *bool     `json:"active"`
 	ForcePwUpdate          *bool     `json:"force_pw_update"`
+	ForceTFA               *bool     `json:"force_tfa"`
+	SenderACL              *[]string `json:"sender_acl"` // addresses, @domains, "*" (any) or [] (only its own addresses)
 	TLSEnforceIn           *bool     `json:"tls_enforce_in"`
 	TLSEnforceOut          *bool     `json:"tls_enforce_out"`
 	Protocols              *[]string `json:"protocols"` // imap pop3 smtp sieve eas dav
@@ -98,8 +108,8 @@ func (in mailboxIn) attrs() (map[string]interface{}, error) {
 	if err := num("quota", in.Quota, 10485760, a, "quota"); err != nil {
 		return nil, err
 	}
-	for k, v := range map[string]*bool{"active": in.Active, "force_pw_update": in.ForcePwUpdate, "tls_enforce_in": in.TLSEnforceIn,
-		"tls_enforce_out": in.TLSEnforceOut, "sogo_access": in.SOGo} {
+	for k, v := range map[string]*bool{"active": in.Active, "force_pw_update": in.ForcePwUpdate, "force_tfa": in.ForceTFA,
+		"tls_enforce_in": in.TLSEnforceIn, "tls_enforce_out": in.TLSEnforceOut, "sogo_access": in.SOGo} {
 		if v != nil {
 			a[k] = flag(*v)
 		}
@@ -127,6 +137,27 @@ func (in mailboxIn) attrs() (map[string]interface{}, error) {
 			return nil, err
 		}
 		a["tags"] = t
+	}
+	if in.SenderACL != nil {
+		acl := []string{}
+		for _, e := range *in.SenderACL {
+			e = strings.ToLower(strings.TrimSpace(e))
+			switch {
+			case e == "":
+				continue
+			case e == "*", reEmail.MatchString(e), strings.HasPrefix(e, "@") && reDomain.MatchString(e[1:]):
+				acl = append(acl, e)
+			default:
+				return nil, fmt.Errorf("%q: enter an address, @domain or * for any sender", e)
+			}
+		}
+		if len(acl) > 200 {
+			return nil, fmt.Errorf("at most 200 sender entries")
+		}
+		if len(acl) == 0 {
+			acl = []string{"default"} // mailcow's way of clearing the list
+		}
+		a["sender_acl"] = acl
 	}
 	if in.TaggedMailHandler != nil {
 		if !taggedModes[*in.TaggedMailHandler] {

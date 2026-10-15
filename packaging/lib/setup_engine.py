@@ -1936,6 +1936,31 @@ def mailcow_da_acl():
     return {"keys": keys, "acls": acls}
 
 
+def mailcow_footer(domain):
+    """A domain's footer from mailcow's database: the API can set it but not read it."""
+    if not re.match(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", domain):
+        raise StepError("invalid domain")
+    mc = find_mailcow()
+    if not mc:
+        raise StepError("mailcow not found")
+    conf = read_kv(os.path.join(mc, "mailcow.conf"))
+    sql = ("SELECT JSON_OBJECT('html', html, 'plain', plain, 'mbox_exclude', mbox_exclude, 'alias_domain_exclude', alias_domain_exclude, "
+           "'skip_replies', skip_replies) FROM domain_wide_footer WHERE domain = '%s'" % domain)
+    rc, out = compose(mc, ["exec", "-T", "-e", "MYSQL_PWD=" + conf.get("DBPASS", ""), "mysql-mailcow", "mysql", "-u" + conf.get("DBUSER", "mailcow"),
+                           conf.get("DBNAME", "mailcow"), "-B", "-N", "-r", "-e", sql])
+    if rc != 0:
+        raise StepError("could not read the footer")
+    row = json.loads(out.strip() or "{}")
+    def as_list(v):
+        try:
+            v = json.loads(v) if isinstance(v, str) else v
+        except ValueError:
+            v = []
+        return v if isinstance(v, list) else []
+    return {"html": row.get("html") or "", "plain": row.get("plain") or "", "skip_replies": str(row.get("skip_replies") or "0") == "1",
+            "exclude": as_list(row.get("mbox_exclude")) + as_list(row.get("alias_domain_exclude"))}
+
+
 # ---------------------------------------------------------------- mailcow updates
 
 MAILCOW_UPDATE_CACHE = os.path.join(STATE_DIR, "mailcow-update.json")

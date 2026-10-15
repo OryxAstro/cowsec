@@ -84,6 +84,7 @@ func Routes(r chi.Router, c *Client, o Options) {
 		})
 		mount(r, c)
 		mountAdmin(r, c, o)
+		mountExtras(r, c, o)
 	})
 }
 
@@ -170,6 +171,22 @@ func mount(r chi.Router, c *Client) {
 			fail(w, 400, err)
 			return
 		}
+		if in.Tags != nil {
+			added, err := c.syncTags("domain/"+d, "delete/domain/tag/"+d, *in.Tags)
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+			if len(added) > 0 {
+				attr["tags"] = added
+			} else {
+				delete(attr, "tags")
+			}
+		}
+		if len(attr) == 0 {
+			writeJSON(w, 200, map[string]interface{}{"status": "ok", "messages": []string{"tags updated"}})
+			return
+		}
 		change(w, "edit/domain", map[string]interface{}{"items": []string{d}, "attr": attr})
 	})
 	r.Delete("/domains/{domain}", func(w http.ResponseWriter, req *http.Request) {
@@ -234,6 +251,18 @@ func mount(r chi.Router, c *Client) {
 		if err != nil {
 			fail(w, 400, err)
 			return
+		}
+		if in.Tags != nil {
+			added, err := c.syncTags("mailbox/"+u, "delete/mailbox/tag/"+u, *in.Tags)
+			if err != nil {
+				fail(w, 400, err)
+				return
+			}
+			if len(added) > 0 {
+				attr["tags"] = added
+			} else {
+				delete(attr, "tags")
+			}
 		}
 		// quarantine settings have their own endpoints in mailcow
 		var msgs []string
@@ -316,14 +345,22 @@ func mount(r chi.Router, c *Client) {
 	})
 	r.Post("/dkim", func(w http.ResponseWriter, req *http.Request) {
 		var in struct {
-			Domain  string `json:"domain"`
-			KeySize int    `json:"key_size"`
+			Domain   string `json:"domain"`
+			KeySize  int    `json:"key_size"`
+			Selector string `json:"selector"`
 		}
 		if err := decode(req, &in); err != nil || !reDomain.MatchString(in.Domain) || (in.KeySize != 2048 && in.KeySize != 3072 && in.KeySize != 4096) {
 			fail(w, 400, fmt.Errorf("choose a domain and a key size of 2048, 3072 or 4096"))
 			return
 		}
-		change(w, "add/dkim", map[string]interface{}{"domains": in.Domain, "dkim_selector": "dkim", "key_size": strconv.Itoa(in.KeySize)})
+		if in.Selector == "" {
+			in.Selector = "dkim"
+		}
+		if !reSelector.MatchString(in.Selector) {
+			fail(w, 400, fmt.Errorf("a selector is lower-case letters, digits, - and _"))
+			return
+		}
+		change(w, "add/dkim", map[string]interface{}{"domains": in.Domain, "dkim_selector": in.Selector, "key_size": strconv.Itoa(in.KeySize)})
 	})
 
 	// ---- quarantine
@@ -380,6 +417,45 @@ func mount(r chi.Router, c *Client) {
 		}
 		get(fmt.Sprintf("get/logs/%s/%d", t, n), true)(w, req)
 	})
+}
+
+// syncTags removes the tags an edit leaves out and returns the ones still to add: mailcow's
+// edit only adds tags, and fails outright when given one the object already has.
+func (c *Client) syncTags(getPath, deletePath string, keep []string) ([]string, error) {
+	data, err := c.Get("get/" + getPath)
+	if err != nil {
+		return nil, err
+	}
+	var cur struct {
+		Tags []string `json:"tags"`
+	}
+	json.Unmarshal(data, &cur)
+	have, want := map[string]bool{}, map[string]bool{}
+	for _, t := range cur.Tags {
+		have[t] = true
+	}
+	var added []string
+	for _, t := range keep {
+		t = strings.TrimSpace(t)
+		if t != "" && !want[t] {
+			want[t] = true
+			if !have[t] {
+				added = append(added, t)
+			}
+		}
+	}
+	var gone []string
+	for _, t := range cur.Tags {
+		if !want[t] {
+			gone = append(gone, t)
+		}
+	}
+	if len(gone) > 0 {
+		if _, err := c.Change(deletePath, gone); err != nil {
+			return nil, err
+		}
+	}
+	return added, nil
 }
 
 // param returns a decoded URL path parameter (mailbox addresses arrive as alice%40example.org).

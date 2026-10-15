@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, CheckCircle2, CircleDashed, Copy, Download, Eye, EyeOff, Globe, KeyRound, Mail, RefreshCw, Server, Shield, Signature, Sparkles, X, XCircle,
+  AlertTriangle, AtSign, Ban, CheckCircle2, CircleDashed, Copy, Download, Eye, EyeOff, FileSignature, Gauge, Globe, KeyRound, Mail, RefreshCw, Server, Settings2, Shield, Signature, Sparkles, Ticket, X, XCircle,
 } from 'lucide-react';
+import { AliasDomainsTab, AppPasswordsTab, DisposableTab, DkimCard, FooterTab, SenderListsTab, SpamScoreTab, Tabs } from './MailcowExtras';
 import Select from './Select';
 import { btn, input, send, useApi } from './MailcowPanels';
 
@@ -38,7 +39,7 @@ export function Modal({ title, sub, icon, onClose, children, footer, wide }: { t
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
+export function Section({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
   return (
     <section className="space-y-3">
       <h4 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400">{icon}{title}</h4>
@@ -47,7 +48,7 @@ function Section({ title, icon, children }: { title: string; icon: ReactNode; ch
   );
 }
 
-function Labelled({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+export function Labelled({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1 min-w-0">
       <span className="text-xs font-semibold text-slate-300">{label}</span>
@@ -68,7 +69,7 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
   );
 }
 
-function SwitchRow({ value, onChange, label, hint }: { value: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
+export function SwitchRow({ value, onChange, label, hint }: { value: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
   return (
     <button type="button" onClick={() => onChange(!value)} className="w-full flex items-start gap-3 text-left cursor-pointer group">
       <span className={`mt-0.5 w-9 h-5 rounded-full relative shrink-0 transition-colors ${value ? 'bg-emerald-500' : 'bg-slate-700'}`}>
@@ -82,7 +83,7 @@ function SwitchRow({ value, onChange, label, hint }: { value: boolean; onChange:
   );
 }
 
-function Chips<T extends string>({ value, onChange, options }: { value: T[]; onChange: (v: T[]) => void; options: [T, string][] }) {
+export function Chips<T extends string>({ value, onChange, options }: { value: T[]; onChange: (v: T[]) => void; options: [T, string][] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map(([v, l]) => {
@@ -96,7 +97,7 @@ function Chips<T extends string>({ value, onChange, options }: { value: T[]; onC
   );
 }
 
-function TagInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+export function TagInput({ value, onChange, placeholder = 'Add a tag and press Enter' }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
   const [draft, setDraft] = useState('');
   const add = () => {
     const t = draft.trim();
@@ -111,7 +112,7 @@ function TagInput({ value, onChange }: { value: string[]; onChange: (v: string[]
         </span>
       ))}
       <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); } }} onBlur={add}
-        placeholder={value.length ? '' : 'Add a tag and press Enter'} className="flex-1 min-w-[120px] bg-transparent text-sm text-white focus:outline-none" />
+        placeholder={value.length ? '' : placeholder} className="flex-1 min-w-[120px] bg-transparent text-sm text-white focus:outline-none" />
     </div>
   );
 }
@@ -134,7 +135,7 @@ function PasswordField({ value, onChange, optional }: { value: string; onChange:
 // ---------------------------------------------------------------- mailbox
 
 export interface DomainLite { domain_name: string; max_quota_for_mbox?: number | string; def_new_mailbox_quota?: number | string }
-interface MailboxDetail { username: string; name: string; quota: number | string; active: number | string; attributes?: Record<string, string>; tags?: string[] }
+interface MailboxDetail { username: string; name: string; quota: number | string; active: number | string; attributes?: Record<string, string>; tags?: string[]; sender_acl?: string[] }
 
 const PROTOCOLS: ['imap' | 'pop3' | 'smtp' | 'sieve' | 'eas' | 'dav', string][] = [['imap', 'IMAP'], ['pop3', 'POP3'], ['smtp', 'SMTP'], ['sieve', 'Sieve'], ['eas', 'ActiveSync'], ['dav', 'CalDAV / CardDAV']];
 
@@ -144,7 +145,8 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
   const relays = useApi<{ id: number; hostname: string }[] | Record<string, never>>('/api/mailcow/relayhosts');
   const [f, setF] = useState({
     local_part: '', domain: domains[0]?.domain_name || '', name: '', password: editing ? '' : genPw(), quota: Number(domains[0]?.def_new_mailbox_quota || 3221225472) / 1048576,
-    active: true, force_pw_update: false, tls_enforce_in: false, tls_enforce_out: false, sogo_access: true,
+    active: true, force_pw_update: false, force_tfa: false, tls_enforce_in: false, tls_enforce_out: false, sogo_access: true,
+    send_mode: 'own' as 'own' | 'some' | 'any', sender_acl: [] as string[],
     protocols: ['imap', 'pop3', 'smtp', 'sieve', 'eas', 'dav'] as string[], tags: [] as string[], tagged_mail_handler: 'none',
     quarantine_notification: 'hourly', quarantine_category: 'reject', relayhost: '0',
   });
@@ -158,7 +160,8 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
     if (!m) return;
     const a = m.attributes || {};
     setF((p) => ({
-      ...p, name: m.name || '', quota: Number(m.quota || 0) / 1048576, active: yes(m.active), force_pw_update: yes(a.force_pw_update),
+      ...p, name: m.name || '', quota: Number(m.quota || 0) / 1048576, active: yes(m.active), force_pw_update: yes(a.force_pw_update), force_tfa: yes(a.force_tfa),
+      send_mode: (m.sender_acl || []).includes('*') ? 'any' : (m.sender_acl || []).length ? 'some' : 'own', sender_acl: (m.sender_acl || []).filter((x) => x !== '*'),
       tls_enforce_in: yes(a.tls_enforce_in), tls_enforce_out: yes(a.tls_enforce_out), sogo_access: yes(a.sogo_access),
       protocols: PROTOCOLS.map(([k]) => k).filter((k) => yes(a[`${k}_access`])), tags: m.tags || [],
       quarantine_notification: a.quarantine_notification || 'hourly', quarantine_category: a.quarantine_category || 'reject', relayhost: String(a.relayhost || '0'),
@@ -168,24 +171,32 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
   const maxQ = dom?.max_quota_for_mbox ? Number(dom.max_quota_for_mbox) / 1048576 : 0;
   const save = () => {
     const all: Record<string, unknown> = {
-      name: f.name, quota: Math.round(f.quota), active: f.active, force_pw_update: f.force_pw_update, tls_enforce_in: f.tls_enforce_in, tls_enforce_out: f.tls_enforce_out,
+      name: f.name, quota: Math.round(f.quota), active: f.active, force_pw_update: f.force_pw_update, force_tfa: f.force_tfa, tls_enforce_in: f.tls_enforce_in, tls_enforce_out: f.tls_enforce_out,
+      sender_acl: f.send_mode === 'any' ? ['*'] : f.send_mode === 'some' ? f.sender_acl : [],
       sogo_access: f.sogo_access, protocols: f.protocols, tags: f.tags, tagged_mail_handler: f.tagged_mail_handler,
       quarantine_notification: f.quarantine_notification, quarantine_category: f.quarantine_category, relayhost: Number(f.relayhost),
     };
     if (f.password) all.password = f.password;
     if (editing) {
-      const body = Object.fromEntries(Object.entries(all).filter(([k]) => dirty[k === 'password' ? 'password' : k]));
+      const body = Object.fromEntries(Object.entries(all).filter(([k]) => dirty[k] || (k === 'sender_acl' && dirty.send_mode)));
       return run(() => send('PATCH', `/api/mailcow/mailboxes/${encodeURIComponent(username!)}`, body), () => { onSaved(); onClose(); });
     }
     return run(() => send('POST', '/api/mailcow/mailboxes', { ...all, local_part: f.local_part, domain: f.domain }), () => { onSaved(); onClose(); });
   };
   const relayList = Array.isArray(relays.data) ? relays.data : [];
+  const [tab, setTab] = useState<'settings' | 'spam' | 'apps' | 'disposable' | 'senders'>('settings');
   const valid = editing ? (!f.password || f.password.length >= 10) : !!f.local_part && !!f.domain && f.password.length >= 10;
   return (
-    <Modal title={editing ? `Edit ${username}` : 'New stall (mailbox)'} sub="Every option mailcow offers when you add a mailbox" icon={<Mail className="w-5 h-5" />} onClose={onClose}
-      footer={<><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
-        <button disabled={!valid} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create mailbox'}</button></>}>
-      {editing && !existing.data ? <p className="text-sm text-slate-400">Loading…</p> : (
+    <Modal title={editing ? `Edit ${username}` : 'New stall (mailbox)'} sub={editing ? 'Settings, spam filter, app passwords and disposable addresses' : 'Every option mailcow offers when you add a mailbox'} icon={<Mail className="w-5 h-5" />} onClose={onClose}
+      footer={tab === 'settings' ? <><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
+        <button disabled={!valid} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create mailbox'}</button></> : undefined}>
+      {editing && <Tabs value={tab} onChange={setTab} tabs={[['settings', 'Settings', <Settings2 key="s" className="w-3.5 h-3.5" />], ['spam', 'Spam filter', <Gauge key="g" className="w-3.5 h-3.5" />],
+        ['apps', 'App passwords', <KeyRound key="k" className="w-3.5 h-3.5" />], ['disposable', 'Disposable addresses', <Ticket key="t" className="w-3.5 h-3.5" />], ['senders', 'Allow / block senders', <Ban key="b" className="w-3.5 h-3.5" />]]} />}
+      {editing && tab === 'spam' && <SpamScoreTab user={username!} run={run} />}
+      {editing && tab === 'apps' && <AppPasswordsTab user={username!} run={run} />}
+      {editing && tab === 'disposable' && <DisposableTab user={username!} domains={domains.map((d) => d.domain_name)} run={run} />}
+      {editing && tab === 'senders' && <SenderListsTab scope="mailbox" target={username!} run={run} />}
+      {tab !== 'settings' ? null : editing && !existing.data ? <p className="text-sm text-slate-400">Loading…</p> : (
         <>
           <Section title="Account" icon={<Mail className="w-3.5 h-3.5" />}>
             {!editing && (
@@ -205,6 +216,7 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
               </Labelled>
             </div>
             <SwitchRow value={f.force_pw_update} onChange={(v) => set({ force_pw_update: v })} label="Ask them to change the password at next sign-in" />
+            <SwitchRow value={f.force_tfa} onChange={(v) => set({ force_tfa: v })} label="Require two-factor sign-in" hint="They must set up an authenticator or security key before they can use webmail or settings. Mail apps keep working with app passwords." />
             <SwitchRow value={f.active} onChange={(v) => set({ active: v })} label="Active" hint="Inactive mailboxes keep their mail but can't sign in or receive." />
           </Section>
           <Section title="Storage and tags" icon={<Server className="w-3.5 h-3.5" />}>
@@ -224,6 +236,17 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
                 <Select value={f.relayhost} onChange={(v) => set({ relayhost: v })} options={[{ value: '0', label: 'Use the domain setting' }, ...relayList.map((r) => ({ value: String(r.id), label: `#${r.id} ${r.hostname}` }))]} />
               </Labelled>
             )}
+          </Section>
+          <Section title="Sending as" icon={<AtSign className="w-3.5 h-3.5" />}>
+            <Labelled label="Which From addresses it may use" hint="Its own address and the aliases that deliver to it are always allowed.">
+              <Segmented value={f.send_mode} onChange={(v) => set({ send_mode: v })} options={[['own', 'Only its own'], ['some', 'Also these…'], ['any', 'Any address']]} />
+            </Labelled>
+            {f.send_mode === 'some' && (
+              <Labelled label="Also allowed to send as" hint="Addresses (sales@example.org) or whole domains (@example.org).">
+                <TagInput value={f.sender_acl} onChange={(v) => set({ sender_acl: v, send_mode: 'some' })} placeholder="sales@example.org or @example.org, then Enter" />
+              </Labelled>
+            )}
+            {f.send_mode === 'any' && <p className="text-[11px] text-amber-300/90 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> It can send as anyone, on any domain. Only for a trusted system mailbox such as a ticketing system.</p>}
           </Section>
           <Section title="Quarantine notifications" icon={<AlertTriangle className="w-3.5 h-3.5" />}>
             <div className="grid sm:grid-cols-2 gap-3">
@@ -261,21 +284,28 @@ export function DomainModal({ domain, onClose, onSaved, run }: { domain?: Domain
     mailboxes: domain?.max_num_mboxes_for_domain ?? 10, aliases: domain?.max_num_aliases_for_domain ?? 400,
     defquota: mib(domain?.def_new_mailbox_quota, 3072), maxquota: mib(domain?.max_quota_for_mbox, 10240), quota: mib(domain?.max_quota_for_domain, 10240),
     backupmx: yes(domain?.backupmx), relay_all_recipients: yes(domain?.relay_all_recipients), relay_unknown_only: yes(domain?.relay_unknown_only),
-    gal: domain ? yes(domain.gal) : true, tags: domain?.tags || [],
+    gal: domain ? yes(domain.gal) : true, tags: domain?.tags || [], rl_value: 0, rl_frame: 'h',
   });
+  const [tab, setTab] = useState<'settings' | 'footer' | 'aliases' | 'senders'>('settings');
   const set = (p: Partial<typeof f>) => setF({ ...f, ...p });
   const body = { description: f.description, active: f.active, mailboxes: f.mailboxes, aliases: f.aliases, defquota: f.defquota, maxquota: f.maxquota, quota: f.quota,
     backupmx: f.backupmx, relay_all_recipients: f.relay_all_recipients, relay_unknown_only: f.relay_unknown_only, gal: f.gal, tags: f.tags };
   const save = () => (editing
     ? run(() => send('PATCH', `/api/mailcow/domains/${f.domain}`, body), () => { onSaved(); onClose(); })
-    : run(() => send('POST', '/api/mailcow/domains', { ...body, domain: f.domain }), () => { onSaved(); onClose(); }));
+    : run(() => send('POST', '/api/mailcow/domains', { ...body, domain: f.domain, ...(f.rl_value > 0 ? { rl_value: f.rl_value, rl_frame: f.rl_frame } : {}) }), () => { onSaved(); onClose(); }));
   const n = (k: 'mailboxes' | 'aliases' | 'defquota' | 'maxquota' | 'quota', label: string, hint?: string) => (
     <Labelled label={label} hint={hint}><input type="number" min={0} className={input} value={f[k]} onChange={(e) => set({ [k]: Math.max(0, +e.target.value) } as Partial<typeof f>)} /></Labelled>
   );
   return (
-    <Modal title={editing ? `Edit ${f.domain}` : 'New paddock (domain)'} sub="Limits, quotas and relay options" icon={<Globe className="w-5 h-5" />} onClose={onClose}
-      footer={<><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
-        <button disabled={!f.domain} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create domain'}</button></>}>
+    <Modal title={editing ? `Edit ${f.domain}` : 'New paddock (domain)'} sub={editing ? 'Limits, footer, alias domains and sender lists' : 'Limits, quotas and relay options'} icon={<Globe className="w-5 h-5" />} onClose={onClose}
+      footer={tab === 'settings' ? <><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
+        <button disabled={!f.domain} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create domain'}</button></> : undefined}>
+      {editing && <Tabs value={tab} onChange={setTab} tabs={[['settings', 'Settings', <Settings2 key="s" className="w-3.5 h-3.5" />], ['footer', 'Footer', <FileSignature key="f" className="w-3.5 h-3.5" />],
+        ['aliases', 'Alias domains', <AtSign key="a" className="w-3.5 h-3.5" />], ['senders', 'Allow / block senders', <Ban key="b" className="w-3.5 h-3.5" />]]} />}
+      {editing && tab === 'footer' && <FooterTab domain={f.domain} run={run} />}
+      {editing && tab === 'aliases' && <AliasDomainsTab domain={f.domain} run={run} />}
+      {editing && tab === 'senders' && <SenderListsTab scope="domain" target={f.domain} run={run} />}
+      {tab === 'settings' && <>
       <Section title="Domain" icon={<Globe className="w-3.5 h-3.5" />}>
         <div className="grid sm:grid-cols-2 gap-3">
           {!editing && <Labelled label="Domain name"><input className={input} value={f.domain} onChange={(e) => set({ domain: e.target.value.trim().toLowerCase() })} placeholder="example.org" /></Labelled>}
@@ -291,6 +321,14 @@ export function DomainModal({ domain, onClose, onSaved, run }: { domain?: Domain
           {n('quota', 'Domain quota (MiB)', 'Total for all mailboxes')}
           {n('defquota', 'New mailbox quota (MiB)', 'The default when adding one')}
           {n('maxquota', 'Max per mailbox (MiB)')}
+          {!editing && (
+            <Labelled label="Sending limit" hint="Messages for the whole domain · 0 = no limit">
+              <div className="flex gap-1.5">
+                <input type="number" min={0} className={`${input} w-24`} value={f.rl_value} onChange={(e) => set({ rl_value: Math.max(0, +e.target.value) })} />
+                <Segmented value={f.rl_frame} onChange={(v) => set({ rl_frame: v })} options={[['m', '/min'], ['h', '/hour'], ['d', '/day']]} />
+              </div>
+            </Labelled>
+          )}
         </div>
       </Section>
       <Section title="Relay and directory" icon={<Shield className="w-3.5 h-3.5" />}>
@@ -303,6 +341,7 @@ export function DomainModal({ domain, onClose, onSaved, run }: { domain?: Domain
           </div>
         )}
       </Section>
+      </>}
     </Modal>
   );
 }
@@ -380,7 +419,7 @@ function CopyText({ text }: { text: string }) {
   );
 }
 
-export function DnsModal({ domain, onClose, run }: { domain: string; onClose: () => void; run: Run }) {
+export function DnsModal({ domain, domains = [], onClose, run }: { domain: string; domains?: string[]; onClose: () => void; run: Run }) {
   const { data, loading, error, reload } = useApi<{ hostname: string; records: Rec[] }>(`/api/mailcow/dns/${domain}`);
   const recs = data?.records || [];
   const needed = recs.filter((r) => !r.optional && r.state !== 'info');
@@ -421,6 +460,7 @@ export function DnsModal({ domain, onClose, run }: { domain: string; onClose: ()
           {groups.map((g) => (
             <section key={g} className="space-y-2">
               <h4 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400">{GROUPS[g]?.[1]}{GROUPS[g]?.[0] || g}</h4>
+              {g === 'signing' && <DkimCard domain={domain} domains={domains} run={run} onChanged={reload} />}
               <div className="rounded-2xl border border-slate-800 divide-y divide-slate-800/80 overflow-hidden cs-stagger">
                 {recs.filter((r) => r.group === g).map((r) => (
                   <div key={r.name + r.type} className="grid md:grid-cols-[minmax(0,1.1fr)_80px_minmax(0,1.6fr)_minmax(0,1.3fr)_24px] gap-x-3 gap-y-1 px-4 py-3 text-xs items-start">
@@ -430,7 +470,7 @@ export function DnsModal({ domain, onClose, run }: { domain: string; onClose: ()
                       {r.expected ? (
                         <div className="flex items-start gap-1"><span className="font-mono text-slate-300 break-all leading-relaxed">{r.expected}</span><CopyText text={r.expected} /></div>
                       ) : r.type.startsWith('TXT (DKIM)') ? (
-                        <button onClick={() => run(() => send('POST', '/api/mailcow/dkim', { domain, key_size: 2048 }), reload)} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><KeyRound className="w-3.5 h-3.5" /> Generate a 2048-bit key</button>
+                        <span className="text-slate-500">Create a key above first.</span>
                       ) : <span className="text-slate-500">—</span>}
                       <p className="text-[11px] text-slate-500 mt-1">{r.help}</p>
                     </div>

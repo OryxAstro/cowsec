@@ -50,7 +50,14 @@ This step does four things:
 
 ### Paddocks (Domains)
 
-Add or edit a domain with its limits, quotas, tags, the global address list and backup-MX relaying. mailcow creates a DKIM key for new domains automatically.
+Add or edit a domain with its limits, quotas, tags, a sending limit, the global address list and backup-MX relaying. mailcow creates a DKIM key for new domains automatically.
+
+Editing a domain adds three more tabs:
+- **Footer:** a disclaimer or legal block added to every message the domain sends. HTML and plain-text versions, a live preview (shown in a sandbox, like a mail client would), "leave replies alone", and addresses that never get it.
+- **Alias domains:** other domains that mirror this one, so mail to alice@*alias* reaches alice@*domain*.
+- **Allow / block senders:** senders every mailbox at the domain always accepts (skipping the spam filter) or always refuses.
+
+<p align="center"><img src="img/mail/domain-footer.webp" alt="Domain footer with live preview" width="900"></p>
 
 <p align="center"><img src="img/mail/domains.webp" alt="Domain list with usage" width="900"></p>
 
@@ -63,7 +70,12 @@ The **DNS** button on each domain opens its checklist. It lists every record mai
 - the DKIM key;
 - autodiscover/autoconfig and SRV records for mail clients (optional).
 
-Each value has a copy button. If a domain has no DKIM key yet, you can generate one there. The whole set downloads as a zone file. The expected TLSA value is calculated from the certificate Postfix actually presents.
+Each value has a copy button. The whole set downloads as a zone file. The expected TLSA value is calculated from the certificate Postfix actually presents.
+
+The **DKIM signing key** card in the checklist creates a key (choose the selector and 2048, 3072 or 4096 bits), copies a key to other domains, or deletes it. **Rotate key** changes the key without a gap in signing:
+1. CowSec makes a new key under a new selector. Nothing changes yet, and the private key is held in memory only.
+2. You publish its DNS record. CowSec checks DNS every 20 seconds until it appears.
+3. mailcow switches to the new key. Keep the old record for about a week so messages already sent still verify.
 
 <p align="center"><img src="img/mail/dns-records.webp" alt="DNS records for a domain, checked live" width="900"></p>
 
@@ -76,9 +88,20 @@ The mailbox form has every option mailcow offers:
 - quarantine notifications and their category;
 - required TLS, incoming and outgoing;
 - which protocols may sign in: IMAP, POP3, SMTP, Sieve, ActiveSync and DAV;
-- webmail access and a relay host.
+- webmail access and a relay host;
+- required two-factor sign-in;
+- which From addresses it may use: only its own, specific addresses and domains, or any address.
 
-**Edit** opens the same form, pre-filled. The key button sets a new password at any time.
+**Edit** opens the same form, pre-filled, with four more tabs:
+- **Spam filter:** where this mailbox draws its lines: inbox below the first score, Junk folder between the two, rejected above the second. Presets for strict, default and relaxed.
+- **App passwords:** a separate password per app or device, limited to the protocols it needs. CowSec generates it and shows it once; pause or revoke it without touching the main password.
+- **Disposable addresses:** throwaway addresses that deliver to the mailbox, lasting a day, a week, a month, a year or forever. When one starts getting spam you can see who leaked it and turn it off.
+- **Allow / block senders:** per-mailbox allow and block lists.
+
+The key button sets a new password at any time.
+
+<p align="center"><img src="img/mail/mailbox-spam-score.webp" alt="Per-mailbox spam score" width="900"></p>
+<p align="center"><img src="img/mail/mailbox-disposable.webp" alt="Disposable addresses" width="900"></p>
 
 <p align="center"><img src="img/mail/mailbox-new.webp" alt="Adding a mailbox" width="900"></p>
 <p align="center"><img src="img/mail/mailboxes.webp" alt="Mailbox list with quotas and last logins" width="900"></p>
@@ -95,10 +118,22 @@ An alias can deliver to a list of addresses, silently discard mail, or act as a 
 
 ### Milk Queue and Quarantine Pen
 
-The queue shows why a message is waiting, for example a remote server refusing it or DNS problems. You can retry everything at once.
+The queue shows why a message is waiting, for example a remote server refusing it or DNS problems. You can retry everything at once, or empty the queue.
+
+Open a quarantined message to see:
+- its score, rspamd's verdict and the sending IP;
+- the headers that matter (From, Reply-To, Return-Path and authentication results);
+- the text, always as plain text, so images, scripts and tracking pixels never load;
+- **why it was held:** every rspamd rule that fired, with its score;
+- **where the links really go:** links whose text shows a different address are flagged;
+- attachments, with risky file types flagged.
+
+From there you can release it, release it and teach rspamd it isn't spam, delete it, or always allow or block the sender (or their whole domain) for that mailbox.
 
 <p align="center"><img src="img/mail/queue.webp" alt="The mail queue" width="900"></p>
 <p align="center"><img src="img/mail/quarantine.webp" alt="The quarantine" width="900"></p>
+<p align="center"><img src="img/mail/quarantine-preview.webp" alt="A quarantined message, shown safely" width="900"></p>
+<p align="center"><img src="img/mail/quarantine-links.webp" alt="Disguised links and risky attachments" width="900"></p>
 
 ### Farm Log
 

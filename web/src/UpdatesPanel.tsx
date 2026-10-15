@@ -1,7 +1,7 @@
 import CowSecUpdateCard from './CowSecUpdateCard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, ArrowUpCircle, CheckCircle2, Clock, Download, FolderOpen, Loader2, Mail, Package, RefreshCw, Rocket, ShieldCheck, X,
+  AlertTriangle, ArrowUpCircle, CheckCircle2, Clock, Download, ExternalLink, FolderOpen, Loader2, Mail, Package, RefreshCw, Rocket, RotateCw, ShieldCheck, X,
 } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
 import Pipeline, { type PipelineJob } from './Pipeline';
@@ -187,23 +187,23 @@ export default function UpdatesPanel() {
       {mc?.found && (
         <Card title="mailcow" icon={<Mail className="w-4 h-4 text-sky-400" />}
           right={<button onClick={() => start('mailcow-check')} disabled={busy} className={`${btn} text-sky-300 border border-sky-800 hover:bg-sky-950`}><RefreshCw className="w-3.5 h-3.5" /> Check for update</button>}>
-          <div className="grid sm:grid-cols-3 gap-3 text-xs">
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
-              <p className="text-slate-500">Installed</p>
-              <p className="text-lg font-bold text-white font-mono">{mc.version?.tag || '—'}</p>
-              <p className="text-slate-500 font-mono">{mc.version?.branch} · {mc.version?.commit} · {mc.version?.date}</p>
+          <div className="grid sm:grid-cols-3 gap-3 text-sm">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-[11px] uppercase tracking-wider text-slate-500">Installed</p>
+              <p className="font-mono text-white break-all">{mc.version?.tag || '—'}</p>
+              <p className="text-[11px] text-slate-500 font-mono">{mc.version?.branch} · {mc.version?.commit} · {mc.version?.date}</p>
             </div>
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
-              <p className="text-slate-500">Update</p>
-              <p className={`text-lg font-bold ${mcState === 'available' ? 'text-amber-300' : mcState === 'current' ? 'text-emerald-300' : 'text-slate-300'}`}>
-                {mcState === 'available' ? 'Available' : mcState === 'current' ? 'Up to date' : mcState === 'error' ? 'Check failed' : 'Not checked yet'}
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+              <p className="text-[11px] uppercase tracking-wider text-slate-500">Release notes</p>
+              <a href="https://github.com/mailcow/mailcow-dockerized/releases" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-sky-300 hover:text-white">mailcow releases <ExternalLink className="w-3 h-3" /></a>
+              <p className="text-[11px] text-slate-500">read before updating</p>
+            </div>
+            <div className={`rounded-xl border p-3 ${mcState === 'available' ? 'border-amber-500/40 bg-amber-500/10' : mcState === 'current' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-slate-800 bg-slate-950/40'}`}>
+              <p className="text-[11px] uppercase tracking-wider text-slate-500">Status</p>
+              <p className={`font-semibold ${mcState === 'available' ? 'text-amber-200' : mcState === 'current' ? 'text-emerald-300' : 'text-slate-300'}`}>
+                {mcState === 'available' ? 'Update ready' : mcState === 'current' ? 'Up to date' : mcState === 'error' ? 'Can\'t check' : 'Not checked yet'}
               </p>
-              <p className="text-slate-500">checked {when(mc.check?.checked)}</p>
-            </div>
-            <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-3">
-              <p className="text-slate-500">Release notes</p>
-              <a href="https://github.com/mailcow/mailcow-dockerized/releases" target="_blank" rel="noreferrer" className="text-sm font-semibold text-sky-300 hover:text-white">mailcow releases ↗</a>
-              <p className="text-slate-500">read before updating</p>
+              <p className="text-[11px] text-slate-500">checked {when(mc.check?.checked)}</p>
             </div>
           </div>
           <div className="border border-slate-800 rounded-xl p-4 space-y-3">
@@ -229,11 +229,17 @@ export default function UpdatesPanel() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button onClick={() => setConfirm('mailcow')} disabled={busy}
-              className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500 disabled:opacity-40 cursor-pointer">
+            <button onClick={() => setConfirm('mailcow')} disabled={busy || mcState !== 'available'}
+              className={`${btn} px-4 py-2 text-sm text-white bg-gradient-to-r from-sky-600 to-emerald-600 hover:from-sky-500 hover:to-emerald-500`}>
               <Rocket className="w-4 h-4" /> Update mailcow
             </button>
-            <p className="text-xs text-slate-500">Mail is briefly offline while containers restart. CowSec then checks the edge, firewall, log reading and certificates.</p>
+            <p className="text-[11px] text-slate-500 flex-1 min-w-[260px]">Mail is briefly offline while containers restart. CowSec then checks the edge, firewall, log reading and certificates.</p>
+            {mcState !== 'available' && (
+              <button onClick={() => setConfirm('mailcow')} disabled={busy} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`}
+                title="Runs mailcow's update.sh --force: pulls the images again and recreates the containers. Useful to repair a broken install.">
+                <RotateCw className="w-3.5 h-3.5" /> Reinstall this version
+              </button>
+            )}
           </div>
         </Card>
       )}
@@ -292,7 +298,7 @@ export default function UpdatesPanel() {
       {confirm && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setConfirm('')}>
           <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 space-y-4 shadow-2xl cs-pop" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-white flex items-center gap-2"><Rocket className="w-5 h-5 text-sky-400" /> {confirm === 'mailcow' ? 'Update mailcow?' : 'Upgrade CrowdSec?'}</h3>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2"><Rocket className="w-5 h-5 text-sky-400" /> {confirm === 'mailcow' ? (mcState === 'available' ? 'Update mailcow?' : 'Reinstall mailcow?') : 'Upgrade CrowdSec?'}</h3>
             {confirm === 'mailcow' ? (
               <ul className="text-sm text-slate-300 space-y-1.5 cs-stagger">
                 {opts.backup ? <li>• Back up everything to <code className="font-mono text-amber-200">{opts.path}</code>{opts.keepDays ? `, keeping ${opts.keepDays} days` : ''}</li> : <li className="text-amber-300">• No backup first (you switched it off)</li>}

@@ -628,6 +628,8 @@ def main():
             print(json.dumps(o)); return
         if verb == "mailcow-da-acl" and not args:
             print(json.dumps(se.mailcow_da_acl())); return
+        if verb == "mailcow-footer" and len(args) == 1:
+            print(json.dumps(se.mailcow_footer(args[0]))); return
         if verb == "netfilter-state" and not args:
             print(json.dumps(se.netfilter_state())); return
         if verb == "netfilter-coordinate" and len(args) == 2 and args[1] in ("0", "1"):

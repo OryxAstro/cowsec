@@ -3,11 +3,12 @@
 // /api/mailcow endpoints; CowSec's audit log records each change.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  AlertTriangle, AtSign, Box, CheckCircle2, Copy, FileText, Globe, HardDrive, Inbox, KeyRound, Loader2,
+  AlertTriangle, AtSign, Box, CheckCircle2, Copy, Eye, FileText, Globe, HardDrive, Inbox, KeyRound, Loader2,
   Pause, Pencil, Play, Plus, RefreshCw, Search, Send, Server, ShieldAlert, Trash2, X,
 } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
 import { AliasModal, DnsModal, DomainModal, MailboxModal } from './MailcowForms';
+import { QuarantinePreview } from './MailcowExtras';
 import Select from './Select';
 
 // ---------------------------------------------------------------- shared
@@ -221,7 +222,7 @@ export function DomainsPanel() {
       {toast}
       {modal?.kind === 'add' && <DomainModal onClose={() => setModal(null)} onSaved={reload} run={run} />}
       {modal?.kind === 'edit' && <DomainModal domain={modal.d} onClose={() => setModal(null)} onSaved={reload} run={run} />}
-      {modal?.kind === 'dns' && <DnsModal domain={modal.d} onClose={() => setModal(null)} run={run} />}
+      {modal?.kind === 'dns' && <DnsModal domain={modal.d} domains={(data || []).map((d) => d.domain_name)} onClose={() => setModal(null)} run={run} />}
       <Header title="Paddocks (Domains)" sub="Mail domains on this server, their limits and their DNS" action={<button onClick={() => setModal({ kind: 'add' })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add domain</button>} />
       {error && <Problem text={error} />}
       {!data ? <Loading text="Counting paddocks…" /> : (
@@ -425,11 +426,13 @@ interface QItem { id: number; sender: string; rcpt: string; subject: string; sco
 export function QuarantinePanel() {
   const { data, error, notConfigured, reload } = useApi<QItem[]>('/api/mailcow/quarantine');
   const { toast, run } = useToast();
+  const [open, setOpen] = useState<number | null>(null);
   if (notConfigured) return <NotConfigured />;
   return (
     <div className="space-y-6">
       {toast}
-      <Header title="Quarantine Pen" sub="Messages held back by rspamd. Release the ones that are genuine." />
+      {open != null && <QuarantinePreview id={open} onClose={() => setOpen(null)} run={run} onChanged={reload} />}
+      <Header title="Quarantine Pen" sub="Messages held back by rspamd. Open one to see why, then release it, train the filter or block the sender." />
       {error && <Problem text={error} />}
       {!data ? <Loading text="Checking the pen…" /> : (
         <Card title={`${data.length} held message${data.length === 1 ? '' : 's'}`} icon={<ShieldAlert className="w-4 h-4 text-amber-400" />}>
@@ -438,12 +441,13 @@ export function QuarantinePanel() {
               <thead className="text-xs text-slate-500 text-left"><tr><th className="py-2">From → to</th><th>Subject</th><th>Score</th><th>When</th><th /></tr></thead>
               <tbody>
                 {data.map((m) => (
-                  <tr key={m.id} className="border-t border-slate-800/70 align-top">
+                  <tr key={m.id} className="border-t border-slate-800/70 align-top hover:bg-slate-800/30 cursor-pointer" onClick={() => setOpen(m.id)}>
                     <td className="py-2.5 text-xs"><p className="text-slate-200 break-all">{m.sender}</p><p className="text-slate-500 break-all">→ {m.rcpt}</p></td>
                     <td className="text-xs text-slate-300 max-w-xs break-words">{m.subject}{on(m.virus_flag) && <span className="ml-2 text-rose-300 font-semibold">virus</span>}</td>
                     <td className="text-xs font-mono text-amber-300">{Number(m.score).toFixed(1)}</td>
                     <td className="text-xs text-slate-400">{new Date(m.created * 1000).toLocaleString()}</td>
-                    <td className="text-right whitespace-nowrap">
+                    <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => setOpen(m.id)} className={`${btn} text-sky-300 hover:text-white hover:bg-slate-800`} title="Open"><Eye className="w-3.5 h-3.5" /> Open</button>
                       <Confirm danger={false} label="Release to the recipient" onConfirm={() => run(() => send('POST', `/api/mailcow/quarantine/${m.id}/release`), reload)}><Send className="w-3.5 h-3.5" /> Release</Confirm>
                       <Confirm label="Delete" onConfirm={() => run(() => send('DELETE', `/api/mailcow/quarantine/${m.id}`), reload)}><Trash2 className="w-3.5 h-3.5" /></Confirm>
                     </td>
@@ -474,6 +478,7 @@ export function QueuePanel() {
         action={<div className="flex gap-2">
           <button onClick={reload} className={`${btn} border border-slate-700 text-slate-300 hover:bg-slate-800`}><RefreshCw className="w-3.5 h-3.5" /> Refresh</button>
           <button onClick={() => run(() => send('POST', '/api/mailcow/queue/flush'), reload)} className={`${btn} bg-sky-700 hover:bg-sky-600 text-white`}><Send className="w-3.5 h-3.5" /> Retry all now</button>
+          {!!data?.length && <Confirm label="Delete every message in the queue" onConfirm={() => run(() => send('POST', '/api/mailcow/queue/purge'), reload)}><Trash2 className="w-3.5 h-3.5" /> Empty the queue</Confirm>}
         </div>} />
       {error && <Problem text={error} />}
       {!data ? <Loading text="Checking the queue…" /> : (
