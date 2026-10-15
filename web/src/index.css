@@ -590,7 +590,7 @@ main .bg-slate-950\/80 {
 [data-mode="light"] [class*="bg-blue-500"]:not([class*="bg-blue-500/"]),
 [data-mode="light"] [class*="bg-blue-600"]:not([class*="bg-blue-600/"]),
 [data-mode="light"] [class*="bg-blue-700"]:not([class*="bg-blue-700/"]),
-[data-mode="light"] [class*="bg-gradient-to"]:not([class*="/"]),
+[data-mode="light"] [class*="bg-gradient-to"]:not([class*="/"]):not([class*="bg-clip-text"]),
 [data-mode="light"] [class*="bg-gradient-to"][class*="from-emerald-6"],
 [data-mode="light"] .cowsec-nav-active {
   --color-white: #ffffff;
@@ -704,4 +704,9 @@ main .bg-slate-950\/80 {
 
 /* the mascot's tile follows the theme */
 :root { --mascot-tile-a: #0b1530; --mascot-tile-b: #050a18; --mascot-rim: rgba(255, 255, 255, 0.08); }
-[data-mode="light"] { --mascot-tile-a: #ffffff; --mascot-tile-b: #e9edf5; --mascot-rim: rgba(15, 23, 42, 0.12); }
+[data-mode="light"] { --mascot-tile-a: transparent; --mascot-tile-b: transparent; --mascot-rim: transparent; }
+
+/* gradient headings (the CowSec wordmark and friends): ink to the theme's accent on light themes */
+[data-mode="light"] .bg-clip-text {
+  background-image: linear-gradient(90deg var(--in-oklab), #0f172a 0%, var(--accent-solid) 70%, var(--accent-to) 100%) !important;
+}
