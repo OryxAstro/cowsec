@@ -160,6 +160,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🔧 [Maintenance](docs/maintenance.md) | Updates, reverting the edge, uninstalling |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Lock-outs, clocks, certificates, OpenResty |
 | 🗺️ [Architecture](docs/architecture.md) | How the pieces fit together |
+| 🧭 [Roadmap](docs/roadmap.md) | What's next: deeper mailcow control, a modern white-label webmail client |
 
 ## Building from source
 
