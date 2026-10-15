@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    install -d -m 0700 /var/lib/cowsec /etc/cowsec
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl enable cowsec >/dev/null 2>&1 || true
+    systemctl restart cowsec >/dev/null 2>&1 || true
+    if [ ! -f /var/lib/cowsec/setup-complete ]; then
+        sleep 2
+        /usr/sbin/cowsec-setup status || true
+    fi
+fi
+exit 0

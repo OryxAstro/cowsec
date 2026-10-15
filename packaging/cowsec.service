@@ -1,0 +1,27 @@
+[Unit]
+Description=CowSec - web console for CrowdSec on mailcow
+Documentation=https://github.com/OryxAstro/cowsec
+After=network-online.target crowdsec.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/cowsec/cowsec.env
+ExecStart=/usr/bin/cowsec
+Restart=on-failure
+RestartSec=3
+# CowSec manages CrowdSec, the firewall bouncer and mailcow's configuration, so it runs as
+# root; the helper it calls only accepts an allowlist of verbs.
+User=root
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=no
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

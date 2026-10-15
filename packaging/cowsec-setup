@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""cowsec-setup: set up and manage CowSec from the terminal.
+
+  cowsec-setup                 show the setup wizard address and token (or the console status)
+  cowsec-setup check           run the pre-flight checks
+  cowsec-setup install --config FILE
+                               headless install from a JSON config (same format as the wizard)
+  cowsec-setup access local|lan|wan|tunnel [--hostname NAME] [--tunnel-token TOKEN]
+                               change how the console is reached
+  cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
+  cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
+"""
+import argparse, glob, json, os, shutil, socket, subprocess, sys
+
+sys.path.insert(0, "/usr/lib/cowsec")
+import setup_engine as se  # noqa: E402
+
+STATE = se.STATE_DIR
+B, G, Y, R, D, N = "\033[1m", "\033[32m", "\033[33m", "\033[31m", "\033[2m", "\033[0m"
+
+
+def need_root():
+    if os.geteuid() != 0:
+        sys.exit("cowsec-setup must run as root (sudo cowsec-setup ...)")
+
+
+def local_ips():
+    rc, out = se.run(["hostname", "-I"])
+    return [ip for ip in out.split() if ":" not in ip] or ["<server-ip>"]
+
+
+def status():
+    if not os.path.exists(os.path.join(STATE, "setup-complete")):
+        tok = open(os.path.join(STATE, "setup-token")).read().strip() if os.path.exists(os.path.join(STATE, "setup-token")) else None
+        fp = open(os.path.join(STATE, "setup-fingerprint")).read().strip() if os.path.exists(os.path.join(STATE, "setup-fingerprint")) else None
+        print(f"\n  {B}🐄 CowSec setup{N}\n")
+        if not tok:
+            print(f"  {Y}The setup wizard is not running yet.{N} Start it with: systemctl restart cowsec\n")
+            return
+        print("  Open the setup wizard in your browser:\n")
+        for ip in local_ips():
+            print(f"    {G}https://{ip}:9443{N}")
+        print(f"\n  Setup token:   {B}{tok}{N}")
+        if fp:
+            print(f"  {D}Certificate SHA-256 (self-signed, check it matches your browser):{N}\n  {D}{':'.join(fp[i:i+2] for i in range(0, len(fp), 2))}{N}")
+        print(f"\n  {D}Port 9443 closes for good once setup is finished.{N}\n")
+        return
+    cfg = json.load(open(os.path.join(STATE, "setup.json"))) if os.path.exists(os.path.join(STATE, "setup.json")) else {}
+    acc = cfg.get("access", {})
+    rc, active = se.run(["systemctl", "is-active", "cowsec"])
+    print(f"\n  {B}🐄 CowSec{N}  service: {G if active == 'active' else R}{active}{N}")
+    mode = acc.get("mode", "local")
+    where = {"lan": f"https://{acc.get('hostname')} (local network)", "wan": f"https://{acc.get('hostname')} (internet)",
+             "tunnel": "your Cloudflare Tunnel hostname", "local": "ssh -L 8090:127.0.0.1:8090 <server>, then http://localhost:8090"}[mode]
+    print(f"  console:  {where}\n  accounts: sudo cowsec auth status\n")
+
+
+def check():
+    res = se.preflight()
+    icon = {"ok": f"{G}✔{N}", "warn": f"{Y}!{N}", "fail": f"{R}✘{N}", "info": f"{D}·{N}"}
+    for c in res["checks"]:
+        print(f"  {icon[c['status']]} {c['title']}" + (f"  {D}{c['detail']}{N}" if c["detail"] else ""))
+    print(f"\n  {G}Ready to install.{N}\n" if res["ok"] else f"\n  {R}Fix the failed checks first.{N}\n")
+    return 0 if res["ok"] else 1
+
+
+def install(path):
+    cfg = se.validate_config(json.load(open(path)))
+    r = se.Runner(echo=True)
+    se.install(cfg, r)
+    print(f"\n{G}Installed.{N} Create an account with: sudo cowsec auth local-admin set <name>")
+    open(os.path.join(STATE, "setup-complete"), "w").write("cli\n")
+    for f in ("setup-token", "setup-fingerprint"):
+        if os.path.exists(os.path.join(STATE, f)):
+            os.remove(os.path.join(STATE, f))
+    subprocess.run(["systemctl", "restart", "cowsec"])
+
+
+def access(mode, hostname, token):
+    saved = json.load(open(os.path.join(STATE, "setup.json")))
+    saved["access"] = {"mode": mode}
+    if hostname:
+        saved["access"]["hostname"] = hostname
+    if token:
+        saved["access"]["tunnelToken"] = token
+    if saved.get("certs", {}).get("mode") == "dns01":
+        saved["certs"]["credentials"] = se.read_kv(se.ETC_DIR + "/dns.env")
+        saved["certs"].update({k: v for k, v in json.load(open(se.ETC_DIR + "/certs.json")).items()})
+    c = se.validate_config(saved)
+    r = se.Runner(echo=True)
+    ctx = {"mailcow": se.mailcow_info(), "ipv6": se.ipv6_enabled()}
+    if c["certs"]["mode"] == "dns01":
+        se.step_certs(c, r, ctx, force_deploy=False)
+    se.step_access(c, r, ctx)
+    json.dump(se.public_config(c), open(os.path.join(STATE, "setup.json"), "w"), indent=2)
+    subprocess.run(["systemctl", "restart", "cowsec"])
+    print(f"{G}Console access is now: {mode}{N}")
+
+
+def reset_wizard():
+    for f in ("setup-complete", "setup-token"):
+        p = os.path.join(STATE, f)
+        if os.path.exists(p):
+            os.remove(p)
+    subprocess.run(["systemctl", "restart", "cowsec"])
+    import time
+    time.sleep(2)
+    status()
+
+
+def revert_edge():
+    mc = se.find_mailcow()
+    conf = os.path.join(mc, "mailcow.conf")
+    baks = sorted(glob.glob(conf + ".cowsec-bak-*"))
+    if not baks:
+        sys.exit("no mailcow.conf backup from CowSec found")
+    r = se.Runner(echo=True)
+    r.sh(["systemctl", "disable", "--now", "openresty"], check=False)
+    shutil.copy2(conf, conf + ".before-revert")
+    shutil.copy2(baks[0], conf)
+    r.log("restored %s (the copy taken before CowSec first changed it)" % baks[0])
+    se.compose(mc, ["up", "-d"], r)
+    for f in (se.NGX + "/sites/cowsec-mailcow.conf", se.NGX + "/sites/cowsec-console.conf"):
+        if os.path.exists(f):
+            os.rename(f, f + ".disabled")
+    print(f"{G}mailcow serves ports 80/443 itself again.{N} CrowdSec and the firewall bouncer keep running.")
+
+
+def main():
+    p = argparse.ArgumentParser(description="Set up and manage CowSec.")
+    sub = p.add_subparsers(dest="cmd")
+    sub.add_parser("check")
+    i = sub.add_parser("install"); i.add_argument("--config", required=True)
+    a = sub.add_parser("access"); a.add_argument("mode", choices=["local", "lan", "wan", "tunnel"])
+    a.add_argument("--hostname"); a.add_argument("--tunnel-token")
+    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status")
+    args = p.parse_args()
+    need_root()
+    try:
+        if args.cmd in (None, "status"):
+            status()
+        elif args.cmd == "check":
+            sys.exit(check())
+        elif args.cmd == "install":
+            install(args.config)
+        elif args.cmd == "access":
+            access(args.mode, args.hostname, args.tunnel_token)
+        elif args.cmd == "reset-wizard":
+            reset_wizard()
+        elif args.cmd == "revert-edge":
+            revert_edge()
+    except se.StepError as e:
+        sys.exit(f"{R}error:{N} {e}")
+
+
+if __name__ == "__main__":
+    main()

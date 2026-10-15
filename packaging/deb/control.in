@@ -1,0 +1,15 @@
+Package: cowsec
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: OryxAstro <noreply@users.noreply.github.com>
+Depends: python3 (>= 3.9), systemd, ca-certificates, gnupg, curl, iproute2, iptables
+Recommends: docker-ce | docker.io
+Homepage: https://github.com/OryxAstro/cowsec
+Description: Web console and installer for CrowdSec on mailcow-dockerized
+ CowSec installs and manages CrowdSec on a mailcow server: firewall bouncer for
+ host and Docker-published mail ports, an OpenResty edge with the CrowdSec
+ bouncer and AppSec WAF, DNS-01 certificates (190+ DNS providers via lego),
+ a ban policy with home countries and escalating bans, and a browser console
+ with 2FA sign-in.

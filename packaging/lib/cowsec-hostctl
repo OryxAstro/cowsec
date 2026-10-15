@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""CowSec host helper: the only part of CowSec that touches system services and files.
+
+The CowSec server (running as root under systemd) calls it with the verb in
+SSH_ORIGINAL_COMMAND; every verb is allowlisted below and none runs arbitrary commands.
+  status                 JSON health report (services, bouncers, AppSec, acquisition, TLS, clock)
+  action <name>          one allowlisted service action
+  policy-get             ban policy + repeat-offender stats
+  policy-apply           render policy.pending.json (or policy.json) into CrowdSec, test, reload
+  auth-failures          failed SMTP AUTH / IMAP-POP logins per IP over the last 24h
+  updates                package, hub and auto-update status, plus background job state
+  job <name>             start a background job (apt-refresh, upgrade-crowdsec, hub-upgrade, setup-install)
+  setup-check            pre-flight checks for the setup wizard
+  dns-providers          DNS-01 providers supported by lego
+  dns-help <code>        credentials a DNS provider needs
+  certs-renew            renew DNS-01 certificates (timer)
+"""
+import datetime, json, os, re, shutil, socket, sqlite3, subprocess, sys, syslog, time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import setup_engine as se  # noqa: E402
+
+ACTIONS = {
+    "reload-crowdsec": [["systemctl", "reload", "crowdsec"]],
+    "restart-crowdsec": [["systemctl", "restart", "crowdsec"]],
+    "restart-firewall-bouncer": [["systemctl", "restart", "crowdsec-firewall-bouncer"]],
+    "reload-openresty": [["/usr/local/openresty/bin/openresty", "-t", "-q"], ["systemctl", "reload", "openresty"]],
+    "enable-hub-autoupdate": [["systemctl", "enable", "--now", "crowdsec-hubupdate.timer"]],
+    "disable-hub-autoupdate": [["systemctl", "disable", "--now", "crowdsec-hubupdate.timer"]],
+    "restart-cowsec": [["systemctl", "--no-block", "restart", "cowsec"]],  # end of setup only
+}
+
+STATE_DIR = os.environ.get("COWSEC_STATE_DIR", "/var/lib/cowsec")
+JOB_DIR = os.path.join(STATE_DIR, "jobs")
+CS_DIR = "/etc/crowdsec"
+PROFILES = CS_DIR + "/profiles.yaml"
+ABROAD_SCENARIO = CS_DIR + "/scenarios/cowsec-auth-abroad.yaml"
+CS_DB = "/var/lib/crowdsec/data/crowdsec.db"
+PACKAGES = ("cowsec", "crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer", "openresty", "cloudflared")
+UPGRADABLE = ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer")
+DEFAULT_POLICY = {
+    "homeCountries": ["GB"],
+    "abroad": {"enabled": False, "smtp": True, "imap": True, "failures": 2, "windowHours": 24},
+    "escalation": {"enabled": False, "baseHours": 4, "mode": "double", "maxHours": 168, "lookbackDays": 7, "includeHome": False},
+}
+
+def log(msg):
+    syslog.openlog("cowsec-hostctl"); syslog.syslog(syslog.LOG_INFO, msg)
+
+def run(cmd, timeout=60):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except Exception as e:
+        return 1, "", str(e)
+
+def jcmd(cmd, default=None):
+    rc, out, _ = run(cmd)
+    if rc != 0:
+        return default
+    try:
+        return json.loads(out)
+    except Exception:
+        return default
+
+def svc(name):
+    rc, out, _ = run(["systemctl", "show", name, "-p", "ActiveState,SubState,ActiveEnterTimestamp,NRestarts"])
+    d = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    return {"name": name, "state": d.get("ActiveState", "unknown"), "sub": d.get("SubState", ""),
+            "since": d.get("ActiveEnterTimestamp", ""), "restarts": d.get("NRestarts", "")}
+
+def pkg(name):
+    rc, out, _ = run(["dpkg-query", "-W", "-f=${Version}", name])
+    return out.strip() if rc == 0 else None
+
+def cert(path):
+    rc, out, _ = run(["openssl", "x509", "-in", path, "-noout", "-enddate", "-issuer", "-ext", "subjectAltName"])
+    if rc != 0:
+        return None
+    end = re.search(r"notAfter=(.+)", out)
+    names = re.findall(r"DNS:([^,\s]+)", out)
+    issuer = re.search(r"CN ?= ?([^,\n]+)", out.split("issuer=")[-1]) if "issuer=" in out else None
+    exp = None
+    if end:
+        try: exp = time.mktime(time.strptime(end.group(1).strip(), "%b %d %H:%M:%S %Y %Z"))
+        except Exception: pass
+    return {"notAfter": end.group(1).strip() if end else None, "daysLeft": int((exp - time.time()) / 86400) if exp else None,
+            "issuer": issuer.group(1).strip() if issuer else None, "names": names}
+
+def firewall():
+    out = {"ipsets": {}, "iptablesRules": 0}
+    if shutil.which("ipset"):
+        rc, o, _ = run(["ipset", "list", "-n"])
+        for n in o.split():
+            if "crowdsec" in n.lower():
+                rc2, o2, _ = run(["ipset", "list", n])
+                m = re.search(r"Number of entries: (\d+)", o2)
+                out["ipsets"][n] = int(m.group(1)) if m else None
+    rc, o, _ = run(["iptables", "-S"])
+    out["iptablesRules"] = sum(1 for l in o.splitlines() if "CROWDSEC" in l.upper())
+    return out
+
+def unit_exists(name):
+    rc, out, _ = run(["systemctl", "show", name, "-p", "LoadState", "--value"])
+    return out.strip() == "loaded"
+
+def main_cert_path():
+    certs = os.path.join(se.ETC_DIR, "certs.json")
+    if os.path.exists(certs):
+        for name in ("mailcow-host", "mailcow"):
+            p = os.path.join(se.CERT_DIR, name, "fullchain.pem")
+            if os.path.exists(p):
+                return p
+        found = sorted(glob_files(os.path.join(se.CERT_DIR, "*", "fullchain.pem")))
+        if found:
+            return found[0]
+    mc = se.find_mailcow()
+    return os.path.join(mc, "data/assets/ssl/cert.pem") if mc else None
+
+def glob_files(pattern):
+    import glob
+    return glob.glob(pattern)
+
+def status():
+    rc, uptime, _ = run(["uptime", "-p"])
+    load = os.getloadavg()
+    rc, chrony, _ = run(["chronyc", "-c", "tracking"])
+    ct = chrony.strip().split(",") if rc == 0 else []
+    mc = se.mailcow_info()
+    containers = list((mc.get("containers") or {}).values())
+    realip = se.NGX + "/conf.d/cloudflare_realip.conf"
+    realip_info = None
+    if os.path.exists(realip):
+        txt = open(realip).read()
+        realip_info = {"ranges": txt.count("set_real_ip_from"), "updated": time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(realip)))}
+    bconf = "/etc/crowdsec/bouncers/crowdsec-openresty-bouncer.conf"
+    appsec_cfg = {}
+    if os.path.exists(bconf):
+        for l in open(bconf):
+            k, _, v = l.strip().partition("=")
+            if k in ("MODE", "APPSEC_URL", "APPSEC_FAILURE_ACTION", "ALWAYS_SEND_TO_APPSEC", "BOUNCING_ON_TYPE", "FALLBACK_REMEDIATION"):
+                appsec_cfg[k] = v
+    rc, ss, _ = run(["ss", "-ltnH"])
+    listening = lambda port: any(re.search(r"[:.]%d\s" % port, l + " ") for l in ss.splitlines())
+    rc, ver, _ = run(["cscli", "version"])
+    m = re.search(r"version:\s*(\S+)", ver)
+    services = [s for s in ("crowdsec", "crowdsec-firewall-bouncer", "openresty", "chrony", "cloudflared", "cowsec") if unit_exists(s + ".service")]
+    timers = [t for t in ("crowdsec-hubupdate.timer", "cowsec-certs.timer", "cowsec-cert-watch.path", "cowsec-cloudflare-realip.timer") if unit_exists(t)]
+    setup = {}
+    if os.path.exists(os.path.join(STATE_DIR, "setup.json")):
+        try:
+            setup = json.load(open(os.path.join(STATE_DIR, "setup.json")))
+        except Exception:
+            setup = {}
+    return {
+        "host": socket.gethostname(), "uptime": uptime.strip(), "load": [round(x, 2) for x in load],
+        "time": {"source": ct[1] if len(ct) > 1 else None, "offsetSeconds": float(ct[4]) if len(ct) > 4 else None,
+                 "stratum": ct[2] if len(ct) > 2 else None},
+        "crowdsecVersion": m.group(1) if m else None,
+        "packages": {p: pkg(p) for p in PACKAGES},
+        "services": [svc(s) for s in services],
+        "timers": [svc(t) for t in timers],
+        "appsec": {"listening": listening(7422), "config": appsec_cfg,
+                   "metrics": jcmd(["cscli", "metrics", "show", "appsec", "-o", "json"], {})},
+        "lapi": {"listening": listening(8080)},
+        "acquisition": jcmd(["cscli", "metrics", "show", "acquisition", "-o", "json"], {}),
+        "bouncerMetrics": jcmd(["cscli", "metrics", "show", "bouncers", "-o", "json"], {}),
+        "firewall": firewall(),
+        "certificate": cert(main_cert_path()) if main_cert_path() else None,
+        "cloudflareRealIP": realip_info,
+        "mailcow": {"hostname": mc.get("hostname"), "dir": mc.get("dir"), "domains": len(mc.get("domains", []))},
+        "mailcowContainers": {"running": sum(1 for c in containers if c["status"].startswith("Up")), "total": len(containers),
+                               "unhealthy": [c["name"] for c in containers if "unhealthy" in c["status"] or not c["status"].startswith("Up")]},
+        "setup": {"accessMode": (setup.get("access") or {}).get("mode"), "edge": (setup.get("components") or {}).get("edge"),
+                  "certMode": (setup.get("certs") or {}).get("mode")},
+    }
+
+# ---------- ban policy ----------
+
+def flush_max_age_days():
+    try:
+        m = re.search(r"^\s*flush:.*?^\s*max_age:\s*(\d+)([dh])", open(CS_DIR + "/config.yaml").read(), re.S | re.M)
+        if m:
+            return max(1, int(m.group(1)) // (24 if m.group(2) == "h" else 1))
+    except Exception:
+        pass
+    return 7
+
+def validate_policy(p):
+    """Returns a clean policy or raises ValueError. Mirrors the checks in the CowSec server."""
+    if not isinstance(p, dict):
+        raise ValueError("policy must be an object")
+    cc = p.get("homeCountries")
+    if not isinstance(cc, list) or not 1 <= len(cc) <= 30 or not all(isinstance(c, str) and re.fullmatch(r"[A-Z]{2}", c) for c in cc):
+        raise ValueError("homeCountries must be 1-30 ISO 3166 alpha-2 codes")
+    a, e = p.get("abroad") or {}, p.get("escalation") or {}
+    def num(d, k, lo, hi):
+        v = d.get(k)
+        if not isinstance(v, int) or isinstance(v, bool) or not lo <= v <= hi:
+            raise ValueError("%s must be a whole number from %d to %d" % (k, lo, hi))
+        return v
+    def flag(d, k):
+        if not isinstance(d.get(k), bool):
+            raise ValueError("%s must be true or false" % k)
+        return d[k]
+    clean = {
+        "homeCountries": sorted(set(cc)),
+        "abroad": {"enabled": flag(a, "enabled"), "smtp": flag(a, "smtp"), "imap": flag(a, "imap"),
+                   "failures": num(a, "failures", 1, 20), "windowHours": num(a, "windowHours", 1, 168)},
+        "escalation": {"enabled": flag(e, "enabled"), "includeHome": bool(e.get("includeHome", False) is True),
+                       "baseHours": num(e, "baseHours", 1, 168),
+                       "mode": e.get("mode") if e.get("mode") in ("linear", "double") else None,
+                       "maxHours": num(e, "maxHours", 1, 720), "lookbackDays": num(e, "lookbackDays", 1, 30)},
+    }
+    if clean["escalation"]["mode"] is None:
+        raise ValueError("mode must be linear or double")
+    if clean["escalation"]["maxHours"] < clean["escalation"]["baseHours"]:
+        raise ValueError("maxHours must be at least baseHours")
+    if clean["escalation"]["lookbackDays"] > flush_max_age_days():
+        raise ValueError("lookbackDays cannot exceed CrowdSec's history (%d days, db_config.flush.max_age)" % flush_max_age_days())
+    if clean["abroad"]["enabled"] and not (clean["abroad"]["smtp"] or clean["abroad"]["imap"]):
+        raise ValueError("choose SMTP and/or IMAP/POP for the abroad rule")
+    return clean
+
+def load_policy():
+    try:
+        return validate_policy(json.load(open(os.path.join(STATE_DIR, "policy.json"))))
+    except Exception:
+        return json.loads(json.dumps(DEFAULT_POLICY))
+
+def ladder(e):
+    """Ban duration (hours) for 0, 1, 2... previous bans, ending at the cap."""
+    out, k = [], 0
+    while True:
+        h = e["baseHours"] * (k + 1) if e["mode"] == "linear" else e["baseHours"] * (2 ** k)
+        out.append(min(h, e["maxHours"]))
+        if h >= e["maxHours"] or len(out) >= 12:
+            return out
+        k += 1
+
+def existing_notifications():
+    try:
+        txt = open(PROFILES).read()
+        m = re.search(r"^notifications:\s*\n((?:\s*-\s*\S+\s*\n)+)", txt, re.M)
+        return re.findall(r"-\s*(\S+)", m.group(1)) if m else []
+    except Exception:
+        return []
+
+def render_profiles(p, notifications):
+    e = p["escalation"]
+    base = 'Alert.Remediation == true && Alert.GetScope() == "Ip"'
+    notif = "".join(" - %s\n" % n for n in notifications)
+    def profile(name, flt, hours):
+        return ("name: %s\nfilters:\n - %s\ndecisions:\n - type: ban\n   duration: %dh\n%son_success: break\n"
+                % (name, flt, hours, ("notifications:\n" + notif) if notif else ""))
+    docs = []
+    if e["enabled"]:
+        steps = ladder(e)
+        since = "%dh" % (e["lookbackDays"] * 24)
+        # Home-country IPs keep the first-ban length unless includeHome is set: a mail client
+        # with a stale saved password at a customer's house should not earn a week-long ban.
+        home = "" if e["includeHome"] else " && !(Alert.Source.Cn in [%s])" % ", ".join("'%s'" % c for c in p["homeCountries"])
+        for k in range(len(steps) - 1, 0, -1):
+            docs.append(profile("cowsec_repeat_offender_%d" % k,
+                                '%s%s && GetDecisionsSinceCount(Alert.GetValue(), "%s") >= %d' % (base, home, since, k), steps[k]))
+        docs.append(profile("default_ip_remediation", base, steps[0]))
+    else:
+        docs.append(profile("default_ip_remediation", base, e["baseHours"]))
+    docs.append(profile("default_range_remediation", 'Alert.Remediation == true && Alert.GetScope() == "Range"', e["baseHours"]))
+    head = ("# Managed by CowSec (Ban policy). Changes made here are replaced on the next apply;\n"
+            "# the original file is kept as profiles.yaml.pre-cowsec.\n")
+    return head + "---\n".join(docs)
+
+def render_abroad(p):
+    a = p["abroad"]
+    if not a["enabled"]:
+        return None
+    parts = []
+    if a["smtp"]:
+        parts.append("(evt.Meta.log_type_enh == 'spam-attempt' && evt.Meta.service == 'postfix')")
+    if a["imap"]:
+        parts.append("(evt.Meta.log_type == 'dovecot_logs' && evt.Meta.dovecot_login_result == 'auth_failed')")
+    home = ", ".join("'%s'" % c for c in p["homeCountries"])
+    flt = "(%s) && evt.Enriched.IsoCode != '' && !(evt.Enriched.IsoCode in [%s])" % (" || ".join(parts), home)
+    n, w = a["failures"], a["windowHours"]
+    if n == 1:
+        bucket = "type: trigger\n"
+    else:
+        bucket = "type: leaky\ncapacity: %d\nleakspeed: \"%dm\"\n" % (n - 1, max(1, w * 60 // (n - 1)))
+    return ("# Managed by CowSec (Ban policy): failed mail logins from outside %s.\n"
+            "%sname: cowsec/auth-abroad\n"
+            "description: \"%d failed mail login(s) within about %dh from outside the home countries\"\n"
+            "filter: \"%s\"\n"
+            "groupby: evt.Meta.source_ip\nblackhole: 1m\n"
+            "labels:\n  service: mail\n  behavior: \"generic:bruteforce\"\n  label: \"Mail login brute force from abroad\"\n"
+            "  confidence: 2\n  spoofable: 0\n  remediation: true\n"
+            % (", ".join(p["homeCountries"]), bucket, n, w, flt.replace('"', '\\"')))
+
+def write_atomic(path, text):
+    tmp = path + ".cowsec-tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+def policy_apply():
+    pending, saved = os.path.join(STATE_DIR, "policy.pending.json"), os.path.join(STATE_DIR, "policy.json")
+    src = pending if os.path.exists(pending) else saved
+    try:
+        p = validate_policy(json.load(open(src)))
+        res = apply_policy(p)
+    except Exception:
+        if src == pending:
+            os.remove(pending)
+        raise
+    if src == pending:
+        os.replace(pending, saved)
+    return res
+
+def apply_policy(p):
+    if not os.path.exists(PROFILES + ".pre-cowsec"):
+        shutil.copy2(PROFILES, PROFILES + ".pre-cowsec")
+    old = {f: (open(f).read() if os.path.exists(f) else None) for f in (PROFILES, ABROAD_SCENARIO)}
+    notifications = existing_notifications()
+    write_atomic(PROFILES, render_profiles(p, notifications))
+    abroad = render_abroad(p)
+    if abroad:
+        write_atomic(ABROAD_SCENARIO, abroad)
+    elif os.path.exists(ABROAD_SCENARIO):
+        os.remove(ABROAD_SCENARIO)
+    rc, out, err = run(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"], timeout=120)
+    if rc != 0:
+        for f, txt in old.items():
+            if txt is None:
+                if os.path.exists(f): os.remove(f)
+            else:
+                write_atomic(f, txt)
+        raise RuntimeError("CrowdSec rejected the new policy, previous files restored: " + (err or out).strip()[-400:])
+    rc, out, err = run(["systemctl", "reload", "crowdsec"], timeout=120)
+    if rc != 0:
+        raise RuntimeError("policy written but reload failed: " + (err or out).strip())
+    log("policy applied: home=%s abroad=%s escalation=%s" % (",".join(p["homeCountries"]), p["abroad"]["enabled"], p["escalation"]["enabled"]))
+    return {"applied": True, "ladderHours": ladder(p["escalation"]) if p["escalation"]["enabled"] else [p["escalation"]["baseHours"]],
+            "notifications": notifications}
+
+def repeat_offenders(days):
+    try:
+        db = sqlite3.connect("file:%s?mode=ro" % CS_DB, uri=True, timeout=5)
+        since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        rows = db.execute("select value, count(*) n, max(created_at) from decisions where origin = 'crowdsec' and scope = 'Ip' "
+                          "and created_at >= ? group by value order by n desc", (since,)).fetchall()
+        buckets = {"1": 0, "2": 0, "3-5": 0, "6+": 0}
+        for _, n, _ in rows:
+            buckets["1" if n == 1 else "2" if n == 2 else "3-5" if n <= 5 else "6+"] += 1
+        return {"days": days, "ips": len(rows), "histogram": buckets,
+                "top": [{"ip": v, "bans": n, "last": str(t)[:19]} for v, n, t in rows[:15]]}
+    except Exception as ex:
+        return {"days": days, "error": str(ex)}
+
+def policy_get():
+    p = load_policy()
+    managed = os.path.exists(PROFILES) and "Managed by CowSec" in open(PROFILES).read()
+    return {"policy": p, "saved": os.path.exists(os.path.join(STATE_DIR, "policy.json")), "managed": managed,
+            "abroadScenarioInstalled": os.path.exists(ABROAD_SCENARIO), "historyDays": flush_max_age_days(),
+            "notifications": existing_notifications(), "repeatOffenders": repeat_offenders(min(flush_max_age_days(), 7))}
+
+# ---------- failed mail logins ----------
+
+def container(service):
+    return ((se.mailcow_info().get("containers") or {}).get(service) or {}).get("name")
+
+def auth_failures():
+    res = {"hours": 24, "smtp": {}, "imap": {}}
+    info = se.mailcow_info().get("containers") or {}
+    pc, dc = (info.get("postfix-mailcow") or {}).get("name"), (info.get("dovecot-mailcow") or {}).get("name")
+    if pc:
+        rc, out, err = run(["docker", "logs", "--since", "24h", pc], timeout=120)
+        for m in re.finditer(r"\[([0-9a-fA-F.:]+)\]: SASL \S+ authentication failed", out + err):
+            res["smtp"][m.group(1)] = res["smtp"].get(m.group(1), 0) + 1
+    if dc:
+        rc, out, err = run(["docker", "logs", "--since", "24h", dc], timeout=120)
+        for m in re.finditer(r"auth failed, (\d+) attempts?.*?rip=([0-9a-fA-F.:]+)", out + err):
+            res["imap"][m.group(2)] = res["imap"].get(m.group(2), 0) + int(m.group(1))
+    return res
+
+# ---------- updates & background jobs ----------
+
+JOBS = {
+    "apt-refresh": "apt-get update -q",
+    "upgrade-crowdsec": (
+        "set -e; ts=$(date +%Y%m%d%H%M%S); tar -czf /root/crowdsec-backup-$ts.tgz /etc/crowdsec; echo \"backup: /root/crowdsec-backup-$ts.tgz\"; "
+        "apt-get update -q; DEBIAN_FRONTEND=noninteractive apt-get install -y -q --only-upgrade "
+        "-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef " + " ".join(UPGRADABLE) + "; "
+        "crowdsec -c /etc/crowdsec/config.yaml -t; systemctl restart crowdsec; sleep 5; systemctl restart crowdsec-firewall-bouncer; "
+        "/usr/local/openresty/bin/openresty -t -q && systemctl reload openresty; sleep 3; "
+        "for s in crowdsec crowdsec-firewall-bouncer openresty; do echo \"$s: $(systemctl is-active $s)\"; systemctl is-active -q $s; done; "
+        "cscli lapi status"),
+    "hub-upgrade": "/usr/bin/cscli hub update && /usr/bin/cscli hub upgrade && systemctl reload crowdsec",
+    "setup-install": None,  # runs setup_engine.install() (see job_exec)
+}
+
+def job_state(name):
+    try:
+        st = json.load(open(os.path.join(JOB_DIR, name + ".json")))
+    except Exception:
+        return {"name": name, "state": "never"}
+    rc, out, _ = run(["systemctl", "is-active", "cowsec-job-" + name])
+    if out.strip() in ("active", "activating") and st.get("state") == "running":
+        st["state"] = "running"
+    elif st.get("state") == "running":
+        st["state"] = "failed"  # unit gone without writing a result
+    try:
+        st["log"] = open(os.path.join(JOB_DIR, name + ".log")).read()[-6000:]
+    except Exception:
+        st["log"] = ""
+    st["name"] = name
+    return st
+
+def job_start(name):
+    if job_state(name).get("state") == "running":
+        raise RuntimeError("%s is already running" % name)
+    os.makedirs(JOB_DIR, mode=0o700, exist_ok=True)
+    rc, out, err = run(["systemd-run", "--unit=cowsec-job-" + name, "--collect", "--quiet",
+                        "--setenv=SSH_ORIGINAL_COMMAND=job-exec " + name, "--setenv=COWSEC_STATE_DIR=" + STATE_DIR,
+                        "--setenv=SSH_CLIENT=" + os.environ.get("SSH_CLIENT", "cowsec 0 0"), os.path.abspath(sys.argv[0])])
+    if rc != 0:
+        raise RuntimeError("could not start job: " + (err or out).strip())
+    return {"started": name}
+
+def setup_install(logp, stp, started):
+    """Runs the setup wizard's install with per-step progress. Secrets in the pending
+    config go to root-only files under /etc/cowsec; the pending file is always deleted."""
+    pending = os.path.join(STATE_DIR, "setup.pending.json")
+    r = se.Runner(logp)
+    steps = []
+    def save(state, extra=None):
+        d = {"state": state, "started": started, "steps": steps}
+        d.update(extra or {})
+        json.dump(d, open(stp, "w"))
+    try:
+        c = se.validate_config(json.load(open(pending)))
+    except Exception as e:
+        r.log("invalid setup configuration: %s" % e)
+        save("failed", {"rc": 2, "error": str(e), "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+        return 2
+    finally:
+        if os.path.exists(pending):
+            os.remove(pending)
+    steps.extend({"id": p["id"], "title": p["title"], "state": "pending"} for p in se.plan(c))
+    save("running")
+    def progress(sid, state):
+        for st in steps:
+            if st["id"] == sid:
+                st["state"] = state
+        save("running")
+    try:
+        se.install(c, r, progress)
+    except Exception as e:
+        save("failed", {"rc": 1, "error": str(e), "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+        return 1
+    save("ok", {"rc": 0, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
+    return 0
+
+def job_exec(name):
+    os.makedirs(JOB_DIR, mode=0o700, exist_ok=True)
+    stp, logp = os.path.join(JOB_DIR, name + ".json"), os.path.join(JOB_DIR, name + ".log")
+    started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    json.dump({"state": "running", "started": started}, open(stp, "w"))
+    open(logp, "w").close()
+    log("job %s started" % name)
+    if name == "setup-install":
+        rc = setup_install(logp, stp, started)
+    else:
+        with open(logp, "w") as lf:
+            p = subprocess.run(["bash", "-c", JOBS[name]], stdout=lf, stderr=subprocess.STDOUT, timeout=1800)
+        rc = p.returncode
+        json.dump({"state": "ok" if rc == 0 else "failed", "rc": rc, "started": started,
+                   "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, open(stp, "w"))
+    log("job %s finished rc=%d" % (name, rc))
+
+def apt_versions(name):
+    rc, out, _ = run(["apt-cache", "policy", name])
+    inst = re.search(r"Installed:\s*(\S+)", out)
+    cand = re.search(r"Candidate:\s*(\S+)", out)
+    i = inst.group(1) if inst and inst.group(1) != "(none)" else None
+    c = cand.group(1) if cand and cand.group(1) != "(none)" else None
+    return {"name": name, "installed": i, "candidate": c, "upgradable": bool(i and c and i != c), "managed": name in UPGRADABLE}
+
+def mtime(path):
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(os.path.getmtime(path)))
+    except Exception:
+        return None
+
+def updates():
+    hub = jcmd(["cscli", "hub", "list", "-o", "json"], {}) or {}
+    counts, pending, tainted = {}, [], []
+    for kind, items in hub.items():
+        counts[kind] = len(items or [])
+        for it in items or []:
+            st = it.get("status", "")
+            if "update" in st:
+                pending.append({"type": kind, "name": it.get("name"), "version": it.get("local_version")})
+            if "tainted" in st:
+                tainted.append({"type": kind, "name": it.get("name")})
+    rc, out, _ = run(["systemctl", "show", "crowdsec-hubupdate.timer", "-p", "UnitFileState,ActiveState,LastTriggerUSec,NextElapseUSecRealtime"])
+    t = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+    rc, res, _ = run(["systemctl", "show", "crowdsec-hubupdate.service", "-p", "Result"])
+    return {
+        "packages": [apt_versions(n) for n in PACKAGES],
+        "aptListsUpdated": mtime("/var/cache/apt/pkgcache.bin"),  # rebuilt by every apt-get update
+        "hub": {"counts": counts, "pending": pending, "tainted": tainted, "indexUpdated": mtime(CS_DIR + "/hub/.index.json")},
+        "hubAutoUpdate": {"enabled": t.get("UnitFileState") == "enabled", "active": t.get("ActiveState") == "active",
+                          "last": t.get("LastTriggerUSec") or None, "next": t.get("NextElapseUSecRealtime") or None,
+                          "lastResult": res.strip().partition("=")[2] or None},
+        "jobs": {n: job_state(n) for n in JOBS if n != "setup-install"},
+    }
+
+def main():
+    cmd = os.environ.get("SSH_ORIGINAL_COMMAND", "").split()
+    if not cmd:
+        print("no command", file=sys.stderr); sys.exit(2)
+    verb, args = cmd[0], cmd[1:]
+    peer = os.environ.get("SSH_CLIENT", "?").split()[0]
+    if verb == "status" and not args:
+        print(json.dumps(status())); return
+    try:
+        if verb == "policy-get" and not args:
+            print(json.dumps(policy_get())); return
+        if verb == "policy-apply" and not args:
+            log("%s policy-apply" % peer)
+            print(json.dumps(policy_apply())); return
+        if verb == "auth-failures" and not args:
+            print(json.dumps(auth_failures())); return
+        if verb == "updates" and not args:
+            print(json.dumps(updates())); return
+        if verb == "job" and len(args) == 1 and args[0] in JOBS:
+            log("%s job %s" % (peer, args[0]))
+            print(json.dumps(job_start(args[0]))); return
+        if verb == "job-exec" and len(args) == 1 and args[0] in JOBS and os.environ.get("INVOCATION_ID"):
+            job_exec(args[0]); return
+        if verb == "job-state" and len(args) == 1 and args[0] in JOBS:
+            print(json.dumps(job_state(args[0]))); return
+        if verb == "setup-check" and not args:
+            print(json.dumps(se.preflight())); return
+        if verb == "dns-providers" and not args:
+            print(json.dumps({"providers": se.dns_providers(), "lego": se.LEGO_VERSION})); return
+        if verb == "dns-help" and len(args) == 1:
+            print(json.dumps(se.dns_provider_help(args[0]))); return
+        if verb == "certs-renew" and not args:
+            se.certs_renew(se.Runner(echo=True)); return
+    except (ValueError, RuntimeError, se.StepError) as ex:
+        print(str(ex), file=sys.stderr); sys.exit(4)
+    if verb == "action" and len(args) == 1 and args[0] in ACTIONS:
+        log("%s action %s" % (peer, args[0]))
+        for c in ACTIONS[args[0]]:
+            rc, out, err = run(c, timeout=120)
+            if rc != 0:
+                sys.stderr.write(err or out); sys.exit(rc)
+        print("%s: done" % args[0]); return
+    print("command not allowed", file=sys.stderr); sys.exit(3)
+
+if __name__ == "__main__":
+    main()
