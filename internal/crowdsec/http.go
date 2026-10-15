@@ -111,6 +111,40 @@ func Routes(cr chi.Router, t *Target) {
 		}
 		json.NewEncoder(w).Encode(v)
 	})
+	// CowSec's own updates: the latest release, and where to fetch it from.
+	cr.Get("/host/cowsec-release", func(w http.ResponseWriter, r *http.Request) {
+		args := []string{}
+		if r.URL.Query().Get("refresh") == "1" {
+			args = append(args, "refresh")
+		}
+		out, err := t.gate("cowsec-release", args...)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(out)
+	})
+	cr.Put("/host/cowsec-update-source", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Repo       string  `json:"repo"`
+			Token      *string `json:"token"`
+			ClearToken bool    `json:"clearToken"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		body, _ := json.Marshal(req)
+		out, err := t.gateStdin("cowsec-update-source", body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out) // repo and tokenSet only: the token is never sent back
+	})
 	cr.Post("/host/jobs", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Job string `json:"job"`

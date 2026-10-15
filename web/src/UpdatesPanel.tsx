@@ -1,3 +1,4 @@
+import CowSecUpdateCard from './CowSecUpdateCard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowUpCircle, CheckCircle2, Clock, Download, FolderOpen, Loader2, Mail, Package, RefreshCw, Rocket, ShieldCheck, X,
@@ -22,7 +23,7 @@ interface Updates {
   mailcow?: MailcowInfo;
 }
 
-const STAGED: Record<string, string> = { 'upgrade-crowdsec': 'Upgrading CrowdSec & bouncers', 'mailcow-update': 'Updating mailcow', 'mailcow-check': 'Checking for a mailcow update' };
+const STAGED: Record<string, string> = { 'upgrade-cowsec': 'Updating CowSec', 'upgrade-crowdsec': 'Upgrading CrowdSec & bouncers', 'mailcow-update': 'Updating mailcow', 'mailcow-check': 'Checking for a mailcow update' };
 
 const when = (s: string | null | undefined) => {
   if (!s || s === 'n/a') return '—';
@@ -94,8 +95,11 @@ export default function UpdatesPanel() {
           if (alive && c) setLiveContainers(c);
         }
         if (j.state === 'running') t = window.setTimeout(tick, 1500);
+        else if (active === 'upgrade-cowsec' && j.state === 'ok') window.setTimeout(() => window.location.reload(), 2500); // load the new console
         else load();
       } catch {
+        // the console restarts during its own update: keep asking until it's back
+        if (active === 'upgrade-cowsec') setJob((cur) => (cur ? { ...cur, state: 'running' } : cur));
         t = window.setTimeout(tick, 3000);
       }
     };
@@ -174,6 +178,8 @@ export default function UpdatesPanel() {
           <Pipeline job={shownJob} title={shownJob.state === 'running' ? 'In progress (you can leave this page; it carries on)' : shownJob.state === 'ok' ? 'All done' : 'Stopped'} />
         </Card>
       )}
+
+      <CowSecUpdateCard busy={busy} onUpdate={() => start('upgrade-cowsec')} />
 
       {mc?.found && (
         <Card title="mailcow" icon={<Mail className="w-4 h-4 text-sky-400" />}

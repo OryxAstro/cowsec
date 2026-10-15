@@ -4,6 +4,7 @@
 package crowdsec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -68,6 +69,26 @@ func (t *Target) gate(verb string, args ...string) ([]byte, error) {
 			msg = strings.TrimSpace(msg + " " + string(ee.Stderr))
 		}
 		return nil, fmt.Errorf("%s failed: %v (%s)", verb, err, msg)
+	}
+	return out, nil
+}
+
+// gateStdin runs a verb with a request body on standard input, for values (like an access
+// token) that must not appear in a process's arguments or environment.
+func (t *Target) gateStdin(verb string, stdin []byte) ([]byte, error) {
+	if t.helper == "" {
+		return nil, fmt.Errorf("no host helper configured")
+	}
+	cmd := exec.Command(t.helper)
+	cmd.Env = append(os.Environ(), "SSH_ORIGINAL_COMMAND="+verb, "SSH_CLIENT=cowsec 0 0")
+	cmd.Stdin = bytes.NewReader(stdin)
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			msg = strings.TrimSpace(msg + " " + string(ee.Stderr))
+		}
+		return nil, fmt.Errorf("%s", msg)
 	}
 	return out, nil
 }

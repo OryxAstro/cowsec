@@ -158,7 +158,7 @@ func (t *Target) HostAuthFailures() (map[string]interface{}, error) {
 }
 
 // HostJobs are the long-running maintenance jobs the helper runs in the background.
-var HostJobs = []string{"apt-refresh", "upgrade-crowdsec", "hub-upgrade", "mailcow-check", "mailcow-update"}
+var HostJobs = []string{"apt-refresh", "upgrade-crowdsec", "upgrade-cowsec", "hub-upgrade", "mailcow-check", "mailcow-update"}
 
 // HostUpdates returns package versions, hub item updates, the nightly hub auto-update
 // timer and the state of background jobs.

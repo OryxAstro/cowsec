@@ -20,6 +20,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 STATE_DIR = os.environ.get("COWSEC_STATE_DIR", "/var/lib/cowsec")
@@ -1595,6 +1596,163 @@ def install(c, r, progress=None):
         if progress:
             progress(sid, "ok")
     r.log("=== setup complete")
+
+
+# ---------------------------------------------------------------- CowSec self-update
+
+UPDATE_ENV = ETC_DIR + "/update.env"          # release source; the optional token never leaves this file
+RELEASE_CACHE = os.path.join(STATE_DIR, "cowsec-release.json")
+UPDATE_DIR = os.path.join(STATE_DIR, "updates")
+DEFAULT_REPO = "OryxAstro/cowsec"
+
+
+def update_source():
+    env = read_kv(UPDATE_ENV) if os.path.exists(UPDATE_ENV) else {}
+    repo = env.get("COWSEC_UPDATE_REPO") or DEFAULT_REPO
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        repo = DEFAULT_REPO
+    return repo, env.get("COWSEC_UPDATE_TOKEN") or ""
+
+
+def set_update_source(repo=None, token=None, clear_token=False):
+    """Stores the release source root-only. The token is write-only: nothing ever returns it."""
+    cur_repo, cur_token = update_source()
+    repo = (repo or cur_repo).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+        raise StepError("repository must look like owner/name")
+    if clear_token:
+        cur_token = ""
+    elif token is not None:
+        token = token.strip()
+        if not re.fullmatch(r"[A-Za-z0-9_]{20,255}", token):
+            raise StepError("that doesn't look like a GitHub token")
+        cur_token = token
+    body = "# CowSec release source (root only). The token only needs read access to releases.\n"
+    body += 'COWSEC_UPDATE_REPO="%s"\n' % repo
+    if cur_token:
+        body += 'COWSEC_UPDATE_TOKEN="%s"\n' % cur_token
+    write(UPDATE_ENV, body, 0o600)
+    if os.path.exists(RELEASE_CACHE):
+        os.remove(RELEASE_CACHE)
+    return {"repo": repo, "tokenSet": bool(cur_token)}
+
+
+def _gh(url, accept="application/vnd.github+json", dest=None):
+    """GitHub request with the token in a header only (never a command line or a log)."""
+    import ssl
+    repo, token = update_source()
+    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "cowsec-updater", "X-GitHub-Api-Version": "2022-11-28"})
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+            if dest:
+                with open(dest, "wb") as f:
+                    shutil.copyfileobj(resp, f)
+                return None
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise StepError("GitHub refused the request (%d): check the token" % e.code)
+        if e.code == 404:
+            raise StepError("no releases found for %s%s" % (repo, "" if token else " (a private repository needs a read-only token)"))
+        raise StepError("GitHub returned %d" % e.code)
+    except urllib.error.URLError as e:
+        raise StepError("could not reach GitHub: %s" % e.reason)
+
+
+def installed_version():
+    rc, out = run(["dpkg-query", "-W", "-f=${Version}", "cowsec"])
+    return out.strip() if rc == 0 else None
+
+
+def newer(a, b):
+    """True when Debian version a sorts after b."""
+    return bool(a and b) and run(["dpkg", "--compare-versions", a, "gt", b])[0] == 0
+
+
+def cowsec_release_status(force=False):
+    repo, token = update_source()
+    if not force and os.path.exists(RELEASE_CACHE) and time.time() - os.path.getmtime(RELEASE_CACHE) < 3600:
+        try:
+            st = json.load(open(RELEASE_CACHE))
+            st["installed"] = installed_version()
+            st["updateAvailable"] = newer((st.get("latest") or {}).get("version"), st["installed"])
+            return st
+        except Exception:
+            pass
+    st = {"repo": repo, "tokenSet": bool(token), "installed": installed_version(), "checked": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "latest": None, "error": None}
+    try:
+        rel = _gh("https://api.github.com/repos/%s/releases/latest" % repo)
+        deb = next((a for a in rel.get("assets", []) if re.fullmatch(r"cowsec_[A-Za-z0-9.+~-]+_amd64\.deb", a.get("name", ""))), None)
+        sums = next((a for a in rel.get("assets", []) if a.get("name") == "SHA256SUMS"), None)
+        if not deb or not sums:
+            raise StepError("the latest release has no package and checksum file")
+        st["latest"] = {"tag": rel.get("tag_name"), "name": rel.get("name") or rel.get("tag_name"), "published": rel.get("published_at"),
+                        "notes": (rel.get("body") or "")[:4000], "url": rel.get("html_url"),
+                        "version": deb["name"][len("cowsec_"):-len("_amd64.deb")], "deb": {"name": deb["name"], "api": deb["url"], "size": deb.get("size")},
+                        "sums": {"api": sums["url"]}}
+    except StepError as e:
+        st["error"] = str(e)
+    st["updateAvailable"] = newer((st.get("latest") or {}).get("version"), st["installed"])
+    write(RELEASE_CACHE, json.dumps(st) + "\n", 0o600)
+    return st
+
+
+def cowsec_self_update(r, progress):
+    """Downloads the latest release, checks its SHA-256 against the release's SHA256SUMS,
+    installs it with apt (the console restarts), then waits for the console to answer."""
+    steps = [("check", "Find the latest release"), ("download", "Download the package"), ("verify", "Verify its checksum"),
+             ("install", "Install it (the console restarts)"), ("health", "Wait for the console")]
+    progress(None, "plan", [{"id": s, "title": t} for s, t in steps])
+    repo, token = update_source()
+    if token:
+        r.redact.append(token)
+    os.makedirs(UPDATE_DIR, mode=0o700, exist_ok=True)
+    st, deb = None, None
+    for sid, title in steps:
+        progress(sid, "running")
+        r.log("=== " + title)
+        if sid == "check":
+            st = cowsec_release_status(force=True)
+            if st.get("error"):
+                raise StepError(st["error"])
+            if not st["updateAvailable"]:
+                raise StepError("already on the latest version (%s)" % st["installed"])
+            r.log("installed %s, latest %s (%s)" % (st["installed"], st["latest"]["version"], st["latest"]["tag"]))
+        elif sid == "download":
+            deb = os.path.join(UPDATE_DIR, st["latest"]["deb"]["name"])
+            _gh(st["latest"]["deb"]["api"], "application/octet-stream", deb)
+            _gh(st["latest"]["sums"]["api"], "application/octet-stream", os.path.join(UPDATE_DIR, "SHA256SUMS"))
+            r.log("downloaded %s (%d bytes)" % (os.path.basename(deb), os.path.getsize(deb)))
+        elif sid == "verify":
+            want = None
+            for line in open(os.path.join(UPDATE_DIR, "SHA256SUMS")):
+                parts = line.split()
+                if len(parts) == 2 and parts[1].lstrip("*") == os.path.basename(deb):
+                    want = parts[0].lower()
+            h = hashlib.sha256()
+            with open(deb, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            if not want or h.hexdigest() != want:
+                os.remove(deb)
+                raise StepError("checksum mismatch: the download was removed and nothing was installed")
+            r.log("SHA-256 matches the release's SHA256SUMS")
+        elif sid == "install":
+            wait_for_apt(r)
+            r.sh(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold", deb], timeout=900)
+        elif sid == "health":
+            for _ in range(30):
+                if run(["systemctl", "is-active", "--quiet", "cowsec"])[0] == 0:
+                    break
+                time.sleep(2)
+            else:
+                raise StepError("the console did not start (journalctl -u cowsec)")
+            r.log("CowSec %s is running" % installed_version())
+            for f in os.listdir(UPDATE_DIR):
+                os.remove(os.path.join(UPDATE_DIR, f))
+        progress(sid, "ok")
 
 
 # ---------------------------------------------------------------- mailcow netfilter <-> CrowdSec

@@ -4,6 +4,22 @@
 
 ## Updating CowSec
 
+In the console, **Fresh Hay → CowSec** shows your version and the latest release from GitHub, with its notes. **Update CowSec** then runs as a staged job:
+1. Downloads the package.
+2. Checks it against the release's `SHA256SUMS`. If the check fails, it deletes the download and installs nothing.
+3. Installs it with apt.
+4. Waits for the console to come back.
+
+Only the console restarts; mail and protection keep running. The page reloads by itself when the update is done.
+
+While the repository is private, the server needs a token to see releases:
+1. Create a fine-grained GitHub token with read-only **Contents** access to that one repository.
+2. Paste it under **Release source**.
+
+It is stored root-only in `/etc/cowsec/update.env` and is never shown again or sent back to the browser.
+
+To update by hand instead:
+
 ```bash
 sha256sum -c SHA256SUMS
 sudo apt update && sudo apt install ./cowsec_<new-version>_amd64.deb
