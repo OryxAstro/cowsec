@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/OryxAstro/cowsec/internal/geo"
@@ -753,13 +754,23 @@ func (t *Target) GetHubCatalog(category string, all bool) ([]ItemInfo, map[strin
 		return items, counts, nil
 	}
 
+	// cscli takes a few seconds per category, so list them in parallel.
+	results := make([][]ItemInfo, len(categories))
+	var wg sync.WaitGroup
+	for i, cat := range categories {
+		wg.Add(1)
+		go func(i int, cat string) {
+			defer wg.Done()
+			if items, err := t.FetchHubCategory(cat, all); err == nil {
+				results[i] = items
+			}
+		}(i, cat)
+	}
+	wg.Wait()
 	var allItems []ItemInfo
-	for _, cat := range categories {
-		items, err := t.FetchHubCategory(cat, all)
-		if err == nil {
-			counts[cat] = len(items)
-			allItems = append(allItems, items...)
-		}
+	for i, cat := range categories {
+		counts[cat] = len(results[i])
+		allItems = append(allItems, results[i]...)
 	}
 	return allItems, counts, nil
 }
