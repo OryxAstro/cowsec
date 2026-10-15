@@ -2,11 +2,14 @@
 set -e
 if [ "$1" = "configure" ]; then
     install -d -m 0700 /var/lib/cowsec /etc/cowsec
+    # a hand-installed CowSec's unit in /etc/systemd/system would override the package's
+    /usr/sbin/cowsec-setup migrate-legacy || echo "cowsec: could not migrate the earlier hand-installed CowSec; see 'cowsec-setup migrate-legacy'" >&2
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable cowsec >/dev/null 2>&1 || true
     systemctl restart cowsec >/dev/null 2>&1 || true
     if [ ! -f /var/lib/cowsec/setup-complete ]; then
-        sleep 2
+        i=0
+        while [ ! -s /var/lib/cowsec/setup-token ] && [ $i -lt 20 ]; do sleep 0.5; i=$((i+1)); done
         /usr/sbin/cowsec-setup status || true
     fi
 fi

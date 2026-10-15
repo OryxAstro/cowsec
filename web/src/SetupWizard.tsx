@@ -8,14 +8,23 @@ import { postJSON } from './session';
 
 interface Check { id: string; title: string; status: 'ok' | 'warn' | 'fail' | 'info'; detail: string }
 interface Mailcow { found: boolean; dir?: string; hostname?: string; domains?: string[]; skipLetsEncrypt?: boolean }
-interface Preflight { checks: Check[]; mailcow: Mailcow; ok: boolean; ipv6: boolean }
+interface Existing {
+  certbot?: { name: string; certPath: string; keyPath: string; names: string[]; authenticator: string };
+  edgeSites?: { files: string[]; consoleHostname: string | null; adminLanOnly: boolean };
+  cloudflareRealIP?: object;
+  chronyPtp?: object;
+  policy?: { homeCountries?: string[] };
+}
+interface Fresh { timezone: string; memKiB: number; clamavPrompt: boolean; hostname: string; dockerMajor: number; branches: string[]; timezones: string[] }
+interface Preflight { checks: Check[]; mailcow: Mailcow; ok: boolean; ipv6: boolean; existing?: Existing; fresh?: Fresh | null }
+interface MailcowAdmin { username: string; password: string; url: string }
 interface Cred { name: string; description: string; alias: boolean }
 interface ProviderHelp { code: string; name: string; credentials: Cred[]; additional: Cred[]; docs: string | null }
 interface JobStep { id: string; title: string; state: 'pending' | 'running' | 'ok' | 'failed' }
 interface Job { state: 'never' | 'running' | 'ok' | 'failed'; steps?: JobStep[]; log?: string; error?: string }
 
 type Access = 'local' | 'lan' | 'wan' | 'tunnel';
-const STEPS = ['Checks', 'Protection', 'Certificates', 'Access', 'Account', 'Install'] as const;
+const STEPS = ['Checks', 'Mail server', 'Protection', 'Certificates', 'Access', 'Account', 'Install'] as const;
 
 const guessCountry = () => {
   const m = (navigator.language || '').match(/-([A-Z]{2})$/i);
@@ -109,7 +118,15 @@ export default function SetupWizard() {
   const [newCountry, setNewCountry] = useState('');
   const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true, mailcowApi: true });
 
-  const [certMode, setCertMode] = useState<'mailcow' | 'dns01'>('dns01');
+  const [mcMode, setMcMode] = useState<'existing' | 'install'>('existing');
+  const [mcHost, setMcHost] = useState('');
+  const [mcTz, setMcTz] = useState('');
+  const [mcClamOff, setMcClamOff] = useState(false);
+  const [mcBranch, setMcBranch] = useState<'master' | 'nightly'>('master');
+  const [mcApex, setMcApex] = useState(false);
+  const [mcAdmin, setMcAdmin] = useState<MailcowAdmin | null>(null);
+
+  const [certMode, setCertMode] = useState<'mailcow' | 'dns01' | 'existing'>('dns01');
   const [providers, setProviders] = useState<string[] | null>(null);
   const [providerFilter, setProviderFilter] = useState('');
   const [provider, setProvider] = useState('');
@@ -130,6 +147,7 @@ export default function SetupWizard() {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [accountDone, setAccountDone] = useState(false);
+  const [directory, setDirectory] = useState(false);
 
   const [job, setJob] = useState<Job | null>(null);
   const [finished, setFinished] = useState(false);
@@ -141,6 +159,7 @@ export default function SetupWizard() {
       .then((s) => {
         setUnlocked(!!s.unlocked);
         setAccountDone(!!s.accounts);
+        setDirectory(!!s.directory);
       })
       .catch(() => setUnlocked(false));
   }, []);
@@ -154,8 +173,21 @@ export default function SetupWizard() {
       if (!r.ok) throw new Error(d.error || 'check failed');
       setPre(d);
       if (d.mailcow?.domains) setDomains(d.mailcow.domains);
+      if (!d.mailcow?.found && d.fresh) {
+        setMcMode('install');
+        setMcTz((t) => t || d.fresh.timezone);
+        setMcHost((h) => h || d.fresh.hostname);
+        setMcClamOff(d.fresh.clamavPrompt); // mailcow's own default at <= 2.5 GiB is "disable ClamAV"
+      }
       if (d.mailcow?.hostname && !hostname) setHostname('cowsec.' + d.mailcow.hostname.split('.').slice(1).join('.'));
       setComp((c) => ({ ...c, chronyPtp: true }));
+      // an existing hand-built setup: start from the choices it already made
+      const ex: Existing = d.existing || {};
+      if (ex.edgeSites?.consoleHostname) setHostname(ex.edgeSites.consoleHostname);
+      if (ex.edgeSites) setComp((c) => ({ ...c, edge: true, adminLanOnly: ex.edgeSites!.adminLanOnly || c.adminLanOnly }));
+      if (ex.cloudflareRealIP) setComp((c) => ({ ...c, cloudflareRealIP: true }));
+      if (ex.policy?.homeCountries?.length) setHome(ex.policy.homeCountries);
+      if (ex.certbot && !['standalone', 'webroot', 'nginx', 'apache'].includes(ex.certbot.authenticator)) setCertMode('existing');
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     }
@@ -167,7 +199,7 @@ export default function SetupWizard() {
   }, [unlocked]);
 
   useEffect(() => {
-    if (step === 2 && certMode === 'dns01' && providers === null) {
+    if (step === 3 && certMode === 'dns01' && providers === null) {
       fetch('/api/setup/dns/providers', { cache: 'no-store' })
         .then((r) => r.json())
         .then((d) => setProviders(d.providers || []))
@@ -198,32 +230,56 @@ export default function SetupWizard() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [job?.log]);
 
+  // Fresh install: certificates and the console name follow the new mail server's domain.
+  const mcParent = mcHost.split('.').slice(1).join('.');
+  useEffect(() => {
+    if (mcMode !== 'install' || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(mcHost)) return;
+    const parent = mcHost.split('.').length > 2 ? mcParent : mcHost;
+    setDomains([parent]);
+    setHostname('cowsec.' + parent);
+  }, [mcMode, mcHost, mcParent]);
+  useEffect(() => {
+    if (job?.state === 'ok' && mcMode === 'install' && !mcAdmin)
+      fetch('/api/setup/mailcow-admin', { cache: 'no-store' }).then((r) => r.json()).then((d) => setMcAdmin(d.admin)).catch(() => {});
+  }, [job?.state, mcMode, mcAdmin]);
+
   const config = useMemo(() => {
     const filled = Object.fromEntries(Object.entries(creds).filter(([, v]) => v.trim()));
     return {
+      mailcow: mcMode === 'install' ? { mode: 'install', hostname: mcHost, timezone: mcTz, skipClamd: mcClamOff, branch: mcBranch, acceptNoSubdomain: mcApex } : { mode: 'existing' },
       homeCountries: home,
       components: { ...comp, cloudflareRealIP: comp.edge && comp.cloudflareRealIP },
-      certs: certMode === 'dns01' ? { mode: 'dns01', provider, credentials: filled, email, domains, perDomain, wildcard, staging } : { mode: 'mailcow' },
+      certs: certMode === 'dns01' ? { mode: 'dns01', provider, credentials: filled, email, domains, perDomain, wildcard, staging }
+        : certMode === 'existing' && pre?.existing?.certbot ? { mode: 'existing', certPath: pre.existing.certbot.certPath, keyPath: pre.existing.certbot.keyPath }
+        : { mode: 'mailcow' },
       access: access === 'tunnel' ? { mode: access, tunnelToken } : access === 'local' ? { mode: access } : { mode: access, hostname },
     };
-  }, [home, comp, certMode, provider, creds, email, domains, perDomain, wildcard, staging, access, hostname, tunnelToken]);
+  }, [mcMode, mcHost, mcTz, mcClamOff, mcBranch, mcApex, home, comp, certMode, provider, creds, email, domains, perDomain, wildcard, staging, access, hostname, tunnelToken, pre]);
 
   const stepError = (): string => {
     if (step === 0) return pre?.ok ? '' : 'Fix the failed checks first.';
-    if (step === 1) return home.length ? '' : 'Choose at least one home country.';
-    if (step === 2 && certMode === 'dns01') {
+    if (step === 1) {
+      if (mcMode === 'existing') return pre?.mailcow.found ? '' : 'No mailcow found on this server. Choose to install it, or set MAILCOW_DIR.';
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(mcHost)) return 'Enter the mail server hostname, e.g. mail.example.com.';
+      if (mcHost.split('.').length === 2 && !mcApex) return 'Use a subdomain (e.g. mail.' + mcHost + '), or confirm the warning.';
+      if (!mcTz) return 'Choose a timezone.';
+      if (pre?.checks.some((c) => c.id.startsWith('fresh-') && c.status === 'fail')) return 'Fix the failed checks for installing mailcow first.';
+      return '';
+    }
+    if (step === 2) return home.length ? '' : 'Choose at least one home country.';
+    if (step === 3 && certMode === 'dns01') {
       if (!comp.edge) return 'DNS-01 certificates need the OpenResty edge (Protection step).';
       if (!provider || !help) return 'Choose your DNS provider.';
       if (!Object.values(creds).some((v) => v.trim())) return 'Enter the DNS provider credentials.';
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return "Enter an e-mail address for Let's Encrypt.";
       if (!domains.length) return 'Choose at least one domain.';
     }
-    if (step === 3) {
+    if (step === 4) {
       if ((access === 'lan' || access === 'wan') && !comp.edge) return 'LAN and internet access are served by the OpenResty edge (Protection step).';
       if ((access === 'lan' || access === 'wan') && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(hostname)) return 'Enter the hostname for the console.';
       if (access === 'tunnel' && tunnelToken.trim().length < 40) return 'Paste the Cloudflare Tunnel token.';
     }
-    if (step === 4 && !accountDone) return 'Create the admin account.';
+    if (step === 5 && !accountDone && !directory) return 'Create the admin account.';
     return '';
   };
 
@@ -380,6 +436,65 @@ export default function SetupWizard() {
       {step === 1 && (
         <div className="space-y-4">
           <div>
+            <h2 className="text-lg font-bold text-white">Your mail server</h2>
+            <p className="text-sm text-slate-400">Protect the mailcow already on this server, or have CowSec install mailcow first.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Choice active={mcMode === 'existing'} onClick={() => pre?.mailcow.found && setMcMode('existing')} icon={<ShieldCheck className="w-4 h-4 text-emerald-400" />} title="Protect my existing mailcow">
+              <p>{pre?.mailcow.found ? <>Found <code className="font-mono">{pre.mailcow.dir}</code> · {pre.mailcow.hostname}. Mail and settings stay as they are.</> : 'No mailcow found on this server.'}</p>
+            </Choice>
+            <Choice active={mcMode === 'install'} onClick={() => !pre?.mailcow.found && setMcMode('install')} icon={<Server className="w-4 h-4 text-sky-400" />} title="Install mailcow, then protect it">
+              <p>{pre?.mailcow.found ? 'mailcow is already installed here.' : <>Docker and mailcow-dockerized from their official sources, set up with mailcow's own installer and the answers below.</>}</p>
+            </Choice>
+          </div>
+          {mcMode === 'install' && pre?.fresh && (
+            <div className="space-y-4 cs-page">
+              <p className="text-xs text-slate-500">These are the questions mailcow's <code className="font-mono">generate_config.sh</code> asks, with its defaults.</p>
+              <div>
+                <span className={label}>Mail server hostname (FQDN)</span>
+                <input className={input} value={mcHost} onChange={(e) => { setMcHost(e.target.value.toLowerCase().trim()); setMcApex(false); }} placeholder="mail.example.com" />
+                <p className="text-xs text-slate-500 mt-1">This is not your mail domain, but your mail server's own name. Its A (and AAAA) record must point at this server; mail for your domains is routed here with MX records.</p>
+                {mcHost.split('.').length === 2 && (
+                  <label className="mt-2 flex items-start gap-2 text-xs text-amber-200 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 cursor-pointer">
+                    <input type="checkbox" checked={mcApex} onChange={(e) => setMcApex(e.target.checked)} className="mt-0.5" />
+                    <span><b>{mcHost}</b> has no subdomain. mailcow warns this "is not fully tested and may cause issues" (mailcow issue #1572). Proceed anyway?</span>
+                  </label>
+                )}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <span className={label}>Timezone</span>
+                  <input className={input} list="cowsec-tz" value={mcTz} onChange={(e) => setMcTz(e.target.value.trim())} placeholder={pre.fresh.timezone || 'Europe/London'} />
+                  <datalist id="cowsec-tz">{pre.fresh.timezones.map((t) => <option key={t} value={t} />)}</datalist>
+                  <p className="text-xs text-slate-500 mt-1">Detected: {pre.fresh.timezone || 'none'}.</p>
+                </div>
+                <div>
+                  <span className={label}>Branch</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['master', 'nightly'] as const).map((b) => (
+                      <button key={b} onClick={() => setMcBranch(b)} className={`rounded-xl border px-3 py-2 text-left text-xs cursor-pointer ${mcBranch === b ? 'border-indigo-400 bg-indigo-500/10 text-white' : 'border-slate-700 text-slate-400 hover:text-white'}`}>
+                        <b className="block text-sm">{b}</b>{b === 'master' ? 'stable updates · recommended' : 'testing · not production-ready'}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">mailcow's "legacy" branch stopped getting updates in February 2026, so it isn't offered.</p>
+                </div>
+              </div>
+              {pre.fresh.clamavPrompt ? (
+                <Toggle on={mcClamOff} onChange={setMcClamOff} label="Disable ClamAV (virus scanning)"
+                  hint={`This server has ${(pre.fresh.memKiB / 1048576).toFixed(1)} GiB of memory. mailcow recommends disabling ClamAV at 2.5 GiB or less to prevent out-of-memory problems. You can turn it back on later (SKIP_CLAMD=n in mailcow.conf).`} />
+              ) : (
+                <p className="text-xs text-slate-500">ClamAV virus scanning stays on ({(pre.fresh.memKiB / 1048576).toFixed(1)} GiB of memory; mailcow only asks at 2.5 GiB or less).</p>
+              )}
+              <p className="text-xs text-slate-500">IPv6: {pre.ipv6 ? 'mailcow will test this server\'s IPv6 connectivity and enable it if it works (updating Docker\'s daemon.json as its installer does).' : 'not available on this server, so mailcow runs IPv4-only.'}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 2 && (
+        <div className="space-y-4">
+          <div>
             <h2 className="text-lg font-bold text-white">Protection</h2>
             <p className="text-sm text-slate-400">CrowdSec, the mailcow log readers and the firewall bouncer are always installed. Choose the extras.</p>
           </div>
@@ -424,13 +539,18 @@ export default function SetupWizard() {
         </div>
       )}
 
-      {step === 2 && (
+      {step === 3 && (
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-bold text-white">Certificates</h2>
             <p className="text-sm text-slate-400">How the web UI, IMAP and SMTP get their TLS certificates.</p>
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${pre?.existing?.certbot ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+            {pre?.existing?.certbot && (
+              <Choice active={certMode === 'existing'} onClick={() => setCertMode('existing')} icon={<KeyRound className="w-4 h-4 text-amber-400" />} title="Keep my current certificates">
+                <p>Use <code className="font-mono">{pre.existing.certbot.name}</code> ({pre.existing.certbot.names.slice(0, 3).join(', ')}{pre.existing.certbot.names.length > 3 ? '…' : ''}). Its renewals keep running; the edge reloads after each one.</p>
+              </Choice>
+            )}
             <Choice active={certMode === 'dns01'} onClick={() => setCertMode('dns01')} icon={<Globe className="w-4 h-4 text-emerald-400" />} title="DNS-01 via your DNS provider">
               <p>No port 80 needed. Wildcards supported. Works with 190+ providers (lego).</p>
             </Choice>
@@ -508,7 +628,7 @@ export default function SetupWizard() {
         </div>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-bold text-white">How you reach the console</h2>
@@ -535,7 +655,7 @@ export default function SetupWizard() {
               <span className={label}>Console hostname</span>
               <input className={input} value={hostname} onChange={(e) => setHostname(e.target.value.toLowerCase().trim())} placeholder="cowsec.example.com" />
               <p className="text-xs text-slate-500 mt-1">
-                Point this name at the server{access === 'lan' ? ' in your local DNS' : ''}. {certMode === 'dns01' ? 'Covered by your DNS-01 certificates.' : "Added to mailcow's certificate (ADDITIONAL_SAN), so its DNS record must resolve publicly."}
+                Point this name at the server{access === 'lan' ? ' in your local DNS' : ''}. {certMode === 'dns01' ? 'Covered by your DNS-01 certificates.' : certMode === 'existing' ? 'Must be covered by your current certificate.' : "Added to mailcow's certificate (ADDITIONAL_SAN), so its DNS record must resolve publicly."}
               </p>
             </div>
           )}
@@ -551,12 +671,18 @@ export default function SetupWizard() {
         </div>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-bold text-white">Your admin account</h2>
             <p className="text-sm text-slate-400">A local CowSec account. You'll enrol an authenticator app the first time you sign in.</p>
           </div>
+          {directory && !accountDone && (
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-sm text-sky-200 flex gap-2">
+              <Network className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Sign-in through your directory (LDAP) is already set up, so this step is optional. A local account is still handy as a break-glass login if the directory is ever unreachable.</span>
+            </div>
+          )}
           {accountDone ? (
             <p className="text-sm text-emerald-300 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Account created. You can add more later with <code className="font-mono">sudo cowsec auth local-admin set &lt;name&gt;</code>.</p>
           ) : (
@@ -586,7 +712,7 @@ export default function SetupWizard() {
         </div>
       )}
 
-      {step === 5 && (
+      {step === 6 && (
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-bold text-white">{job ? (job.state === 'ok' ? 'All done' : job.state === 'failed' ? 'Installation stopped' : 'Raising the barn…') : 'Ready to install'}</h2>
@@ -594,9 +720,10 @@ export default function SetupWizard() {
           </div>
           {!job && (
             <ul className="text-sm text-slate-300 space-y-1.5 border border-slate-800 rounded-2xl p-4 bg-slate-950/40">
+              <li>• Mail server: <b>{mcMode === 'install' ? `install mailcow (${mcBranch}) as ${mcHost} · ${mcTz}${mcClamOff ? ' · ClamAV off' : ''}` : `protect ${pre?.mailcow.hostname || 'the existing mailcow'}`}</b></li>
               <li>• Home countries: <b className="font-mono">{home.join(', ')}</b></li>
               <li>• OpenResty edge + WAF: <b>{comp.edge ? 'yes' : 'no'}</b>{comp.edge && comp.adminLanOnly ? ' · admin pages LAN-only' : ''}{comp.edge && comp.cloudflareRealIP ? ' · Cloudflare real IP' : ''}</li>
-              <li>• Certificates: <b>{certMode === 'dns01' ? `DNS-01 via ${provider} · ${domains.length} domain(s) · ${perDomain ? 'per domain' : 'shared'}${wildcard ? ' · wildcard' : ''}${staging ? ' · STAGING' : ''}` : "mailcow's own"}</b></li>
+              <li>• Certificates: <b>{certMode === 'dns01' ? `DNS-01 via ${provider} · ${domains.length} domain(s) · ${perDomain ? 'per domain' : 'shared'}${wildcard ? ' · wildcard' : ''}${staging ? ' · STAGING' : ''}` : certMode === 'existing' ? `your current certificates (${pre?.existing?.certbot?.name})` : "mailcow's own"}</b></li>
               <li>• Console: <b>{access === 'lan' ? `LAN at ${hostname}` : access === 'wan' ? `internet at ${hostname}` : access === 'tunnel' ? 'Cloudflare Tunnel' : 'this server only'}</b></li>
               <li>• Smart ban policy: <b>{comp.banPolicy ? 'yes' : 'no'}</b> · Accurate clock: <b>{comp.chronyPtp ? 'yes' : 'no'}</b> · mailcow management: <b>{comp.mailcowApi ? 'yes' : 'no'}</b></li>
             </ul>
@@ -629,6 +756,18 @@ export default function SetupWizard() {
               </ul>
               <pre ref={logRef} className="text-[11px] leading-relaxed text-slate-300 bg-slate-950/80 border border-slate-800 rounded-xl p-3 h-64 overflow-auto whitespace-pre-wrap">{job.log || ''}</pre>
               {job.error && <ErrorLine text={job.error} />}
+              {job.state === 'ok' && mcAdmin && (
+                <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-2 cs-pop">
+                  <p className="text-sm font-semibold text-amber-100 flex items-center gap-2"><KeyRound className="w-4 h-4" /> Your mailcow admin login: save it now, it's only shown here</p>
+                  <div className="grid sm:grid-cols-3 gap-2 text-sm">
+                    <div><span className={label}>Admin page</span><code className="font-mono text-xs text-white break-all">{mcAdmin.url}</code></div>
+                    <div><span className={label}>Username</span><code className="font-mono text-white">{mcAdmin.username}</code></div>
+                    <div><span className={label}>Password</span><code className="font-mono text-white select-all">{mcAdmin.password}</code></div>
+                  </div>
+                  <p className="text-xs text-amber-200/80">CowSec replaced mailcow's well-known default password with this random one. Change it and turn on 2FA in mailcow after you sign in.</p>
+                  <p className="text-xs text-amber-200/80">DNS: point <b>{mcHost}</b> (A/AAAA) at this server, then add each mail domain in The Farm, which shows its MX, SPF and DKIM records.</p>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -636,7 +775,7 @@ export default function SetupWizard() {
 
       </div>
 
-      {step !== 5 || !job || job.state !== 'running' ? <div className="mt-5"><ErrorLine text={error} /></div> : null}
+      {step !== 6 || !job || job.state !== 'running' ? <div className="mt-5"><ErrorLine text={error} /></div> : null}
 
       <div className="mt-6 flex items-center justify-between">
         <button
@@ -646,7 +785,7 @@ export default function SetupWizard() {
         >
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
-        {step < 5 && (
+        {step < 6 && (
           <button
             onClick={() => { setError(''); setStep(step + 1); }}
             disabled={!!err}
@@ -656,23 +795,23 @@ export default function SetupWizard() {
             Next <ArrowRight className="w-4 h-4" />
           </button>
         )}
-        {step === 5 && !job && (
+        {step === 6 && !job && (
           <button onClick={install} disabled={busy} className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Server className="w-4 h-4" />} Install
           </button>
         )}
-        {step === 5 && job?.state === 'failed' && (
+        {step === 6 && job?.state === 'failed' && (
           <button onClick={() => { setJob(null); }} className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-slate-700 hover:bg-slate-600 cursor-pointer">
             Review settings and retry
           </button>
         )}
-        {step === 5 && job?.state === 'ok' && (
+        {step === 6 && job?.state === 'ok' && (
           <button onClick={finish} disabled={busy} className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 cursor-pointer">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <PartyPopper className="w-4 h-4" />} Finish and close setup
           </button>
         )}
       </div>
-      {err && step < 5 && <p className="text-[11px] text-slate-500 text-right mt-2">{err}</p>}
+      {err && step < 6 && <p className="text-[11px] text-slate-500 text-right mt-2">{err}</p>}
     </Shell>
   );
 }

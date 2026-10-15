@@ -185,6 +185,14 @@ def apt_key_repo(r, name, key_url, line, keyring):
     if os.path.exists(keyring) and os.path.exists(list_path) and open(list_path).read().strip() == line:
         r.log("apt repository %s already configured" % name)
         return False
+    url = re.search(r"https?://\S+", line).group(0).rstrip("/")
+    for f in ["/etc/apt/sources.list"] + glob.glob("/etc/apt/sources.list.d/*"):
+        if ".cowsec-bak-" in f or (f == list_path and not os.path.exists(keyring)):
+            continue
+        if os.path.isfile(f) and url.split("://", 1)[1] in open(f, errors="replace").read():
+            # a second entry with a different signed-by makes apt refuse to run at all
+            r.log("apt repository %s already configured in %s; using that" % (name, f))
+            return False
     os.makedirs(os.path.dirname(keyring), exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         key = os.path.join(td, "key")
@@ -264,6 +272,394 @@ def mailcow_info():
     }
 
 
+# ---------------------------------------------------------------- installing mailcow from scratch
+
+MAILCOW_REPO = "https://github.com/mailcow/mailcow-dockerized"
+MAILCOW_NEW_DIR = "/opt/mailcow-dockerized"
+MAILCOW_PORTS = (25, 80, 110, 143, 443, 465, 587, 993, 995, 4190)
+MAILCOW_BRANCHES = ("master", "nightly")  # mailcow's [1] and [2]; "legacy" stopped getting updates in February 2026
+MAILCOW_ADMIN_ONCE = os.path.join(STATE_DIR, "mailcow-admin.json")  # shown once by the wizard, removed at Finish
+CLAMAV_PROMPT_KIB = 2621440  # generate_config.sh offers to turn ClamAV off at or below 2.5 GiB
+
+
+def host_timezone():
+    """The same detection generate_config.sh uses for its default."""
+    try:
+        if os.path.exists("/etc/timezone"):
+            return open("/etc/timezone").read().strip()
+        return re.sub(r"^.*zoneinfo/", "", os.readlink("/etc/localtime"))
+    except OSError:
+        return ""
+
+
+def mem_total_kib():
+    m = re.search(r"MemTotal:\s+(\d+)", open("/proc/meminfo").read())
+    return int(m.group(1)) if m else 0
+
+
+def docker_major():
+    rc, out = run(["docker", "version", "--format", "{{.Server.Version}}"])
+    m = re.match(r"(\d+)", out) if rc == 0 else None
+    return int(m.group(1)) if m else 0
+
+
+def fresh_facts():
+    """What the wizard needs to ask mailcow's own questions, with mailcow's defaults."""
+    fqdn = socket.getfqdn()
+    return {"timezone": host_timezone(), "memKiB": mem_total_kib(), "clamavPrompt": mem_total_kib() <= CLAMAV_PROMPT_KIB,
+            "hostname": fqdn if fqdn.count(".") >= 2 else "", "dockerMajor": docker_major(), "branches": list(MAILCOW_BRANCHES),
+            "timezones": sorted(set(l.split("\t")[2] for l in open("/usr/share/zoneinfo/zone1970.tab") if l[0] != "#")) if os.path.exists("/usr/share/zoneinfo/zone1970.tab") else []}
+
+
+def fresh_checks(add, owners):
+    """Pre-flight for a server that has no mailcow yet."""
+    gib = mem_total_kib() / 1048576
+    add("fresh-ram", "Memory for mailcow (6 GiB recommended)", "ok" if gib >= 5.5 else "warn",
+        "%.1f GiB%s" % (gib, "" if gib >= 5.5 else "; mailcow may run short" + (", turn ClamAV off" if gib <= 2.5 else "")))
+    st = os.statvfs("/var/lib" if os.path.isdir("/var/lib") else "/")
+    free = st.f_bavail * st.f_frsize / 1e9
+    add("fresh-disk", "Disk for mailcow (20 GB+)", "ok" if free >= 20 else "warn", "%.0f GB free" % free)
+    busy = {p: sorted(owners.get(str(p), set())) for p in MAILCOW_PORTS if owners.get(str(p))}
+    add("fresh-ports", "Mail and web ports free", "ok" if not busy else "fail",
+        "25, 80, 110, 143, 443, 465, 587, 993, 995, 4190" if not busy else
+        "in use: " + "; ".join("%d by %s" % (p, ", ".join(o)) for p, o in sorted(busy.items())) + ". Stop and disable those services first.")
+    dm = docker_major()
+    rc, out = run(["dpkg-query", "-W", "-f=${Status}", "docker.io"])
+    if "installed" in out and "not-installed" not in out:
+        add("fresh-docker", "Docker", "fail", "the distribution's docker.io package is installed; mailcow needs Docker CE 24+. Remove docker.io first.")
+    elif shutil.which("podman") and not dm:
+        add("fresh-docker", "Docker", "fail", "Podman found; mailcow needs Docker CE")
+    elif dm and dm < 24:
+        add("fresh-docker", "Docker", "fail", "Docker %d found; mailcow needs 24 or newer" % dm)
+    else:
+        add("fresh-docker", "Docker", "ok", "Docker %d" % dm if dm else "will be installed from Docker's official repository")
+    try:  # a plain TCP connect, no SMTP conversation: many VPS providers block outbound 25
+        socket.create_connection(("gmail-smtp-in.l.google.com", 25), timeout=6).close()
+        add("fresh-smtp-out", "Outbound mail (port 25)", "ok", "open")
+    except OSError:
+        add("fresh-smtp-out", "Outbound mail (port 25)", "warn", "blocked or unreachable; many VPS providers block it until you ask, or you'll need a relay host")
+
+
+def step_docker(c, r, ctx):
+    osid, ver, code = os_release()
+    flavour = "ubuntu" if osid == "ubuntu" else "debian"
+    apt_install(r, ["ca-certificates", "curl", "gnupg"])
+    apt_key_repo(r, "docker", "https://download.docker.com/linux/%s/gpg" % flavour,
+                 "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/%s %s stable" % (flavour, code),
+                 "/etc/apt/keyrings/docker.gpg")
+    apt_install(r, ["docker-ce", "docker-ce-cli", "containerd.io", "docker-buildx-plugin", "docker-compose-plugin"])
+    r.sh(["systemctl", "enable", "--now", "docker"])
+    if docker_major() < 24:
+        raise StepError("Docker did not start, or is older than 24")
+
+
+def mailcow_up_and_healthy(d, r, minutes=15):
+    """Waits for every mailcow container to be up (and healthy where it has a health check)."""
+    deadline = time.time() + minutes * 60
+    while time.time() < deadline:
+        rc, out = compose(d, ["ps", "-a", "--format", "{{.Service}}\t{{.State}}\t{{.Health}}"])
+        rows = [l.split("\t") for l in out.splitlines() if l.count("\t") == 2]
+        waiting = [s for s, state, health in rows if state != "running" or health not in ("", "healthy")]
+        if rows and not waiting:
+            r.log("all %d containers up" % len(rows))
+            return
+        time.sleep(10)
+    raise StepError("mailcow containers not ready after %d minutes: %s" % (minutes, ", ".join(waiting[:8])))
+
+
+def set_mailcow_admin_password(d, r):
+    """mailcow-reset-admin.sh without a terminal: a random admin password, hashed by dovecot,
+    instead of mailcow's well-known default."""
+    conf = read_kv(os.path.join(d, "mailcow.conf"))
+    pw = secrets.token_urlsafe(15)
+    r.redact += [pw, conf.get("DBPASS", "")]
+    rc, h = compose(d, ["exec", "-T", "dovecot-mailcow", "doveadm", "pw", "-s", "SSHA256", "-p", pw])
+    h = h.strip().splitlines()[-1] if rc == 0 and h.strip() else ""
+    if not re.fullmatch(r"\{SSHA256\}[A-Za-z0-9+/=]+", h):
+        raise StepError("could not hash the mailcow admin password")
+    sql = ("DELETE FROM admin WHERE username='admin'; DELETE FROM domain_admins WHERE username='admin'; "
+           "INSERT INTO admin (username, password, superadmin, active) VALUES ('admin', '%s', 1, 1); DELETE FROM tfa WHERE username='admin';" % h)
+    for _ in range(30):
+        rc, _out = r.sh(["docker", "compose", "exec", "-T", "-e", "MYSQL_PWD=" + conf["DBPASS"], "mysql-mailcow",
+                         "mysql", "-u" + conf["DBUSER"], conf["DBNAME"]], cwd=d, input=sql, check=False, quiet=True)
+        if rc == 0:
+            break
+        time.sleep(5)
+    else:
+        raise StepError("could not set the mailcow admin password (database not ready)")
+    write(MAILCOW_ADMIN_ONCE, json.dumps({"username": "admin", "password": pw, "url": "https://%s/admin" % conf.get("MAILCOW_HOSTNAME", "")}) + "\n", 0o600)
+    r.log("mailcow admin password set (shown once in the wizard)")
+
+
+def step_mailcow_install(c, r, ctx):
+    m = c["mailcow"]
+    d = MAILCOW_NEW_DIR
+    if find_mailcow():
+        raise StepError("mailcow is already installed in %s" % find_mailcow())
+    # generate_config.sh's own requirements
+    apt_install(r, ["git", "jq", "curl", "openssl", "gawk", "coreutils", "grep", "sed", "iputils-ping"])
+    if not os.path.isdir(os.path.join(d, ".git")):
+        old = os.umask(0o022)  # mailcow's install guide: files must stay readable by its containers
+        try:
+            r.sh(["git", "clone", MAILCOW_REPO, d], timeout=600)
+        finally:
+            os.umask(old)
+    host = m["hostname"]
+    try:
+        addrs = sorted({a[4][0] for a in socket.getaddrinfo(host, None)})
+        r.log("%s resolves to %s" % (host, ", ".join(addrs)))
+    except OSError:
+        r.log("note: %s doesn't resolve yet; add its A (and AAAA) record before mail can flow" % host)
+    # Same questions as an interactive install, answered from the wizard. The remaining
+    # prompts (no-subdomain warning, Docker IPv6 daemon.json) are confirmed with "y".
+    env = {"MAILCOW_HOSTNAME": host, "MAILCOW_TZ": m["timezone"], "SKIP_CLAMD": "y" if m["skipClamd"] else "n", "MAILCOW_BRANCH": m["branch"]}
+    r.sh(["bash", "./generate_config.sh"], cwd=d, env=env, input="y\n" * 6, timeout=1800)
+    if not os.path.exists(os.path.join(d, "mailcow.conf")):
+        raise StepError("generate_config.sh did not write mailcow.conf")
+    os.chmod(os.path.join(d, "mailcow.conf"), 0o600)
+    compose(d, ["pull", "-q"], r)
+    compose(d, ["up", "-d"], r)
+    mailcow_up_and_healthy(d, r)
+    set_mailcow_admin_password(d, r)
+    ctx["mailcow"] = mailcow_info()
+    ctx["fresh_mailcow"] = True
+
+
+# ---------------------------------------------------------------- existing CrowdSec
+
+FW_PKGS = ("crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables")
+FW_CONF = CS_DIR + "/bouncers/crowdsec-firewall-bouncer.yaml"
+
+
+def restart_crowdsec(r):
+    """Restarts the engine; on failure, surfaces CrowdSec's own reason instead of systemd's."""
+    rc, _ = r.sh(["systemctl", "restart", "crowdsec"], check=False)
+    if rc != 0:
+        _, j = run(["journalctl", "-u", "crowdsec", "-n", "40", "--no-pager", "-o", "cat"])
+        why = [l for l in j.splitlines() if re.search(r"FATAL|level=fatal|level=error", l)]
+        reason = why[-1].strip() if why else "see journalctl -u crowdsec"
+        if "api.crowdsec.net" in reason:
+            reason += " (CrowdSec can't reach its central API: check DNS, the firewall and /etc/hosts)"
+        raise StepError("CrowdSec did not restart: " + reason[-400:])
+
+
+def pkg_version(name):
+    rc, out = run(["dpkg-query", "-W", "-f=${Status} ${Version}", name])
+    return out.split()[-1] if rc == 0 and out.startswith("install ok installed") else None
+
+
+def yaml_scalar(path, key):
+    """Top-level or nested `key: value` (or `key = value`) from a simple config file (first match)."""
+    try:
+        m = re.search(r"^\s*%s\s*[:=]\s*['\"]?([^'\"#\n]+?)['\"]?\s*(#.*)?$" % re.escape(key), open(path).read(), re.M)
+        return m.group(1).strip() if m else None
+    except OSError:
+        return None
+
+
+def lapi_url():
+    return (yaml_scalar(CS_DIR + "/local_api_credentials.yaml", "url") or "http://127.0.0.1:8080/").rstrip("/") + "/"
+
+
+def crowdsec_inventory():
+    """What CrowdSec is already on this server and how it was put there. Decides whether
+    CowSec can build on it (apt packages on the host), or must refuse (a second engine)."""
+    inv = {"package": pkg_version("crowdsec"), "binary": shutil.which("crowdsec"), "firewall": None, "firewallMode": None}
+    if inv["binary"] and not inv["package"]:
+        inv["manual"] = inv["binary"]
+    elif inv["binary"] and run(["dpkg", "-S", os.path.realpath(inv["binary"])])[0] != 0:
+        inv["manual"] = inv["binary"]  # package present, but a hand-placed binary wins on PATH
+    rc, out = run(["docker", "ps", "--format", "{{.Names}} {{.Image}}"])
+    inv["containers"] = [l.split()[0] for l in out.splitlines() if "crowdsecurity/crowdsec" in l or re.search(r"\bcrowdsec\b", l.split()[-1] if l.split() else "")]
+    if inv["package"] or inv["binary"]:
+        url = lapi_url()
+        inv["lapiUrl"] = url
+        host = re.sub(r"^\w+://|[:/].*$", "", url)
+        inv["remoteLapi"] = host not in ("127.0.0.1", "localhost", "::1", "[::1]")
+        try:
+            inv["lapiServer"] = not re.search(r"^api:\n(?:[ \t].*\n)*?[ \t]+server:\n(?:[ \t].*\n)*?[ \t]+enable:\s*false", open(CS_DIR + "/config.yaml").read(), re.M)
+        except OSError:
+            inv["lapiServer"] = True
+    for p in FW_PKGS:
+        v = pkg_version(p)
+        if v:
+            inv["firewall"], inv["firewallVersion"] = p, v
+    if os.path.exists(FW_CONF):
+        inv["firewallMode"] = yaml_scalar(FW_CONF, "mode")
+    inv["hostFirewalls"] = [u for u in ("ufw", "firewalld") if run(["systemctl", "is-active", "--quiet", u])[0] == 0]
+    rc, out = run(["iptables", "-V"])
+    inv["iptablesBackend"] = "nf_tables" if "nf_tables" in out else ("legacy" if "legacy" in out else None)
+    return inv
+
+
+def firewall_uses_nft(inv=None):
+    inv = inv or crowdsec_inventory()
+    return inv.get("firewall") == FW_PKGS[1] or inv.get("firewallMode") == "nftables"
+
+
+def firewall_covers_docker():
+    """True when the firewall bouncer filters traffic Docker forwards to mailcow (DNAT'd mail ports)."""
+    if firewall_uses_nft():
+        rc, out = run(["nft", "list", "table", "ip", yaml_scalar(FW_CONF, "table") or "crowdsec"])
+        return rc == 0 and "hook forward" in out, "nftables forward hook"
+    rc, out = run(["iptables", "-S", "DOCKER-USER"])
+    return "CROWDSEC" in out.upper(), "iptables DOCKER-USER"
+
+
+# ---------------------------------------------------------------- existing setups
+
+LEGACY_UNIT = "/etc/systemd/system/cowsec.service"
+LEGACY_MARKER = os.path.join(STATE_DIR, "legacy-migrated.json")
+
+
+def cert_names_of(path):
+    rc, out = run(["openssl", "x509", "-in", path, "-noout", "-ext", "subjectAltName"])
+    return re.findall(r"DNS:([^,\s]+)", out) if rc == 0 else []
+
+
+def replaced_acquisition(doc):
+    """An acquisition doc that CowSec's own files replace: mailcow's containers, the edge's
+    logs, or an AppSec engine (only one can listen on its port)."""
+    live = "\n".join(l for l in doc.split("\n") if not l.lstrip().startswith("#"))
+    return bool(re.search(r"^\s*-\s*\S*(postfix|dovecot|nginx)-mailcow\S*\s*$", live, re.M)
+                or "/var/log/openresty/" in live or re.search(r"^\s*source:\s*appsec\b", live, re.M))
+
+
+def detect_existing():
+    """Finds earlier hand-built pieces CowSec can take over, so the wizard can pre-fill
+    answers and the install can adopt them cleanly instead of clashing."""
+    d = {}
+    if os.path.exists(LEGACY_MARKER):
+        try:
+            d["legacyCowsec"] = json.load(open(LEGACY_MARKER))
+        except Exception:
+            d["legacyCowsec"] = {}
+    mc = find_mailcow()
+    host = read_kv(os.path.join(mc, "mailcow.conf")).get("MAILCOW_HOSTNAME", "") if mc else ""
+    # certbot (or any ACME client) certificates that cover the mailcow hostname
+    for live in sorted(glob.glob("/etc/letsencrypt/live/*/fullchain.pem")):
+        names = cert_names_of(live)
+        if host and any(n == host or (n.startswith("*.") and host.endswith(n[1:])) for n in names):
+            d["certbot"] = {"name": live.split("/")[-2], "certPath": live, "keyPath": live.replace("fullchain.pem", "privkey.pem"),
+                            "names": names[:20], "timers": [t for t in ("certbot.timer", "mailcow-cert-sync.timer") if run(["systemctl", "cat", t])[0] == 0],
+                            "hooks": sorted(f for f in glob.glob("/etc/letsencrypt/renewal-hooks/deploy/*") if not os.path.basename(f).startswith("cowsec-")),
+                            "authenticator": yaml_scalar("/etc/letsencrypt/renewal/%s.conf" % live.split("/")[-2], "authenticator") or ""}
+            break
+    sites = sorted(f for f in glob.glob(NGX + "/sites/*.conf") if not os.path.basename(f).startswith("cowsec-"))
+    if sites:
+        console = None
+        for f in sites:
+            txt = open(f).read()
+            if "127.0.0.1:8090" in txt:
+                m = re.search(r"server_name\s+([^;\s]+)", txt)
+                console = m.group(1) if m else None
+        d["edgeSites"] = {"files": sites, "consoleHostname": console,
+                          "adminLanOnly": any(re.search(r"admin\|domainadmin", open(f).read()) for f in sites)}
+    if os.path.exists(NGX + "/conf.d/cloudflare_realip.conf") or run(["systemctl", "cat", "openresty-cloudflare-realip.timer"])[0] == 0:
+        d["cloudflareRealIP"] = {"timer": "openresty-cloudflare-realip.timer" if run(["systemctl", "cat", "openresty-cloudflare-realip.timer"])[0] == 0 else None}
+    ptp = [f for f in glob.glob("/etc/chrony/conf.d/*.conf") if "refclock PHC" in open(f).read() and not os.path.basename(f).startswith("cowsec-")]
+    if ptp:
+        d["chronyPtp"] = {"files": ptp}
+    dup = []
+    for f in [CS_DIR + "/acquis.yaml"] + glob.glob(CS_DIR + "/acquis.d/*.yaml"):
+        if os.path.basename(f).startswith("cowsec-") or not os.path.exists(f):
+            continue
+        if any(replaced_acquisition(doc) for doc in re.split(r"(?m)^---\s*$", open(f).read())):
+            dup.append(f)
+    if dup:
+        d["duplicateAcquisition"] = {"files": dup}
+    pol = os.path.join(STATE_DIR, "policy.json")
+    if os.path.exists(pol):
+        try:
+            d["policy"] = {"homeCountries": json.load(open(pol)).get("homeCountries")}
+        except Exception:
+            pass
+    return d
+
+
+def migrate_legacy(r):
+    """Hand-installed CowSec (before the package existed): a unit in /etc/systemd/system
+    that overrides the package's, a binary in /opt/cowsec and settings with old names.
+    Moves them aside and carries the settings over. Accounts, 2FA and policy stay."""
+    if not os.path.exists(LEGACY_UNIT) or "/opt/cowsec/" not in open(LEGACY_UNIT).read():
+        return False
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    dst = "/root/cowsec-legacy-%s" % stamp
+    os.makedirs(dst, mode=0o700, exist_ok=True)
+    r.sh(["systemctl", "stop", "cowsec"], check=False)
+    moved = []
+    for src in (LEGACY_UNIT, "/usr/local/sbin/cowsec-hostctl", "/opt/cowsec"):
+        if os.path.exists(src):
+            shutil.move(src, os.path.join(dst, os.path.basename(src.rstrip("/"))))
+            moved.append(src)
+    envp = ETC_DIR + "/cowsec.env"
+    if os.path.exists(envp):
+        shutil.copy2(envp, os.path.join(dst, "cowsec.env.orig"))
+        old = read_kv(envp)
+        # sign-in settings may carry another prefix from a hand-made unit; the packaged names are COWSEC_*
+        new = {}
+        for k, v in old.items():
+            m = re.fullmatch(r"[A-Z][A-Z0-9]*_((?:LDAP|DUO)_[A-Z0-9_]+|TRUSTED_PROXIES)", k)
+            if m and v:
+                new.setdefault("COWSEC_" + m.group(1), v)
+            elif k.startswith("COWSEC_") and k not in ("COWSEC_UI_DIR", "COWSEC_HELPER") and v:
+                new[k] = v
+        write(envp, "# Migrated from a hand-installed CowSec by cowsec-setup (original in %s)\n" % dst
+              + "".join('%s="%s"\n' % (k, v.replace("\\", "\\\\").replace('"', '\\"')) for k, v in sorted(new.items())), 0o600)
+    write(LEGACY_MARKER, json.dumps({"migrated": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "backup": dst, "moved": moved}) + "\n", 0o600)
+    r.sh(["systemctl", "daemon-reload"], check=False)
+    r.log("migrated the hand-installed CowSec; originals kept in %s" % dst)
+    return True
+
+
+def step_adopt(c, r, ctx):
+    """Takes over earlier hand-built pieces so they don't clash with what CowSec installs.
+    Everything moved or changed is kept under /root/cowsec-adopted-<time>/."""
+    d = detect_existing()
+    bdir = "/root/cowsec-adopted-%s" % time.strftime("%Y%m%d%H%M%S")
+    def keep(path):
+        os.makedirs(bdir, mode=0o700, exist_ok=True)
+        dst = os.path.join(bdir, path.strip("/").replace("/", "__"))
+        shutil.copy2(path, dst) if os.path.isfile(path) else shutil.copytree(path, dst)
+        return dst
+    if c["components"]["edge"] and d.get("edgeSites"):
+        for f in d["edgeSites"]["files"]:
+            keep(f)
+            os.remove(f)
+            r.log("edge: moved %s aside (CowSec's edge replaces it)" % f)
+    if c["components"]["edge"] and c["components"]["cloudflareRealIP"] and (d.get("cloudflareRealIP") or {}).get("timer"):
+        r.sh(["systemctl", "disable", "--now", "openresty-cloudflare-realip.timer"], check=False)
+        r.log("Cloudflare real-IP: the old timer is off; CowSec's timer takes over")
+    if c["components"]["chronyPtp"] and d.get("chronyPtp"):
+        for f in d["chronyPtp"]["files"]:
+            keep(f)
+            os.remove(f)
+            r.log("clock: moved %s aside (CowSec's chrony config replaces it)" % f)
+    for f in (d.get("duplicateAcquisition") or {}).get("files", []):
+        keep(f)
+        docs = re.split(r"(?m)^---\s*$", open(f).read())
+        out = []
+        for doc in docs:
+            if replaced_acquisition(doc):
+                out.append("\n".join("# cowsec-adopted: " + l if l.strip() else l for l in doc.split("\n")))
+            else:
+                out.append(doc)
+        write(f, "---\n".join(out), r=None, keep_backup=False)
+        r.log("log sources: commented out entries in %s that CowSec's own acquisition replaces" % f)
+        ctx["reload_crowdsec"] = True
+    if d.get("certbot") and c["certs"]["mode"] == "dns01":
+        for t in d["certbot"]["timers"]:
+            r.sh(["systemctl", "disable", "--now", t], check=False)
+        for h in d["certbot"]["hooks"]:
+            keep(h)
+            os.remove(h)
+        r.log("certificates: certbot's renewals and deploy hook are off; CowSec's DNS-01 renewal takes over (/etc/letsencrypt is untouched)")
+    if os.path.isdir(bdir):
+        r.log("originals kept in %s" % bdir)
+    else:
+        r.log("nothing to take over")
+
+
 # ---------------------------------------------------------------- pre-flight
 
 def preflight():
@@ -283,24 +679,52 @@ def preflight():
     add("docker", "Docker with Compose v2", "ok" if rc == 0 else "fail", out.splitlines()[0] if out else "not found")
     mc = mailcow_info()
     if not mc["found"]:
-        add("mailcow", "mailcow-dockerized installation", "fail", "mailcow.conf not found (set MAILCOW_DIR if it lives elsewhere)")
+        add("mailcow", "mailcow-dockerized installation", "info", "not installed: CowSec can install it for you "
+            "(already installed somewhere else? set MAILCOW_DIR in /etc/cowsec/cowsec.env)")
     else:
         add("mailcow", "mailcow-dockerized installation", "ok", "%s · %s" % (mc["dir"], mc["hostname"]))
         need = ("postfix-mailcow", "dovecot-mailcow", "nginx-mailcow")
         down = [s for s in need if not mc["containers"].get(s, {}).get("status", "").startswith("Up")]
         add("mailcow-running", "mailcow containers running", "ok" if not down else "fail", "down: " + ", ".join(down) if down else "%d containers" % len(mc["containers"]))
         add("mailcow-domains", "mailcow domains", "ok" if mc["domains"] else "warn", ", ".join(mc["domains"][:8]) + (" …" if len(mc["domains"]) > 8 else "") or "none found")
-    rc, out = run(["dpkg-query", "-W", "-f=${Version}", "crowdsec"])
-    add("crowdsec", "CrowdSec", "ok", "installed " + out if rc == 0 and out else "will be installed")
-    rc, out = run(["docker", "ps", "--format", "{{.Image}}"])
-    if "crowdsecurity/crowdsec" in out:
-        add("crowdsec-docker", "No CrowdSec container", "warn", "a CrowdSec container is running; two engines would double-ban. Remove it first.")
+    inv = crowdsec_inventory()
+    if inv.get("manual"):
+        add("crowdsec", "CrowdSec", "fail", "%s was installed by hand, not from CrowdSec's apt repository. "
+            "CowSec manages CrowdSec through apt; remove it first (your /etc/crowdsec config can stay)." % inv["manual"])
+    elif inv["package"] and inv.get("remoteLapi"):
+        add("crowdsec", "CrowdSec", "fail", "this server is an agent of a central CrowdSec at %s; multi-server setups are not supported yet" % inv["lapiUrl"])
+    elif inv["package"] and not inv.get("lapiServer", True):
+        add("crowdsec", "CrowdSec", "fail", "the local API is turned off in /etc/crowdsec/config.yaml; CowSec needs it on this server")
+    elif inv["package"]:
+        add("crowdsec", "CrowdSec", "ok", "%s already installed: kept, with your collections, scenarios and allowlists" % inv["package"])
+    else:
+        add("crowdsec", "CrowdSec", "ok", "will be installed from CrowdSec's apt repository")
+    if inv["containers"]:
+        add("crowdsec-docker", "No second CrowdSec engine", "fail", "CrowdSec container running (%s); two engines would read the same logs and fight over bans. "
+            "Stop and remove it first." % ", ".join(inv["containers"]))
+    if inv["firewall"] == FW_PKGS[1] or inv.get("firewallMode") == "nftables":
+        add("firewall-bouncer", "Firewall bouncer", "ok", "nftables bouncer %s kept; CowSec makes sure it also hooks forwarded traffic (mailcow's mail ports)" % (inv.get("firewallVersion") or ""))
+    elif inv["firewall"]:
+        add("firewall-bouncer", "Firewall bouncer", "ok", "iptables bouncer %s kept; CowSec adds DOCKER-USER to its chains" % inv["firewallVersion"])
+    elif os.path.exists(FW_CONF):
+        add("firewall-bouncer", "Firewall bouncer", "warn", "a firewall bouncer config exists but no bouncer package; the iptables bouncer will be installed")
+    if inv["iptablesBackend"] == "legacy":
+        add("iptables-backend", "iptables backend", "warn", "iptables-legacy is selected; make sure Docker uses the same backend or bans may not reach mail ports")
+    if inv["hostFirewalls"]:
+        add("host-firewall", "Other host firewalls", "info", "%s active: fine alongside CrowdSec, but reloading %s can drop the bouncer's rules until it restarts"
+            % (", ".join(inv["hostFirewalls"]), " or ".join(inv["hostFirewalls"])))
     rc, ss = run(["ss", "-ltnpH"])
     owners = {}
     for line in ss.splitlines():
-        m = re.search(r"[:\]](80|443|8081|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\"", line)
+        m = re.search(r"[:\]](25|80|110|143|443|465|587|993|995|4190|8081|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\",pid=(\d+)", line)
         if m:
-            owners.setdefault(m.group(1), set()).add(m.group(2))
+            name = m.group(2)
+            try:  # OpenResty's processes are called "nginx"; tell them apart by executable
+                if "/openresty/" in os.readlink("/proc/%s/exe" % m.group(3)):
+                    name = "openresty"
+            except OSError:
+                pass
+            owners.setdefault(m.group(1), set()).add(name)
     web = set().union(*[owners.get(p, set()) for p in ("80", "443")])
     rc_ng, _ = run(["systemctl", "is-active", "--quiet", "nginx"])
     others = web - {"docker-proxy", "openresty"}
@@ -310,12 +734,17 @@ def preflight():
         add("web-ports", "Web ports 80/443 available", "ok", "already served by the OpenResty edge")
     else:
         add("web-ports", "Web ports 80/443 available", "ok", "served by mailcow now; the edge takes them over and moves mailcow to localhost" if "docker-proxy" in web else "free")
+    if not mc["found"]:
+        fresh_checks(add, owners)
     for port, what in (("8081", "mailcow HTTP (edge)"), ("8443", "mailcow HTTPS (edge)"), ("8090", "CowSec console")):
         o = owners.get(port, set()) - {"docker-proxy", "cowsec"}
         if o:
             add("port-" + port, "Port %s free (%s)" % (port, what), "warn", "in use by " + ", ".join(o))
-    rc, out = run(["iptables", "-S", "DOCKER-USER"])
-    add("docker-user", "iptables DOCKER-USER chain", "ok" if rc == 0 else "warn", "" if rc == 0 else "not found; bans will only cover host services")
+    if firewall_uses_nft(inv):
+        add("docker-user", "Forwarded traffic (mail ports)", "ok", "covered by the nftables bouncer's forward hook")
+    else:
+        rc, out = run(["iptables", "-S", "DOCKER-USER"])
+        add("docker-user", "iptables DOCKER-USER chain", "ok" if rc == 0 else "warn", "" if rc == 0 else "not found; bans will only cover host services")
     rc, out = run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
     add("time", "Clock synchronised", "ok" if out.strip() == "yes" else "warn", "" if out.strip() == "yes" else "TOTP sign-in needs an accurate clock")
     ptp = os.path.exists("/dev/ptp0") or run(["modprobe", "-n", "ptp_kvm"])[0] == 0
@@ -329,7 +758,20 @@ def preflight():
             add("net-" + host, "Reach " + host, "ok")
         except OSError as e:
             add("net-" + host, "Reach " + host, "fail", str(e))
-    return {"checks": checks, "mailcow": mc, "ok": not any(c["status"] == "fail" for c in checks), "ipv6": ipv6_enabled()}
+    existing = detect_existing()
+    labels = {"legacyCowsec": "Earlier hand-installed CowSec (already migrated by the package)", "certbot": "Existing certificates (%s)",
+              "edgeSites": "Existing OpenResty sites (will be replaced, originals kept)", "cloudflareRealIP": "Existing Cloudflare real-IP setup",
+              "chronyPtp": "Existing KVM clock config", "duplicateAcquisition": "CrowdSec already reads mailcow logs or runs AppSec (duplicates will be commented out)",
+              "policy": "Existing ban policy (kept)"}
+    for k, v in existing.items():
+        title = labels[k] % v.get("name") if k == "certbot" else labels[k]
+        if k == "certbot" and v.get("authenticator") in ("standalone", "webroot", "nginx", "apache"):
+            add("existing-certbot-http01", "Existing certificates renew over HTTP-01", "warn",
+                "certbot uses '%s', which needs port 80; behind the edge it can't renew. Choose DNS-01 in the wizard instead." % v["authenticator"])
+        detail = ", ".join(v.get("files", [])[:3]) if isinstance(v, dict) and v.get("files") else (", ".join(v.get("names", [])[:4]) if k == "certbot" else "")
+        add("existing-" + k, title, "info", detail)
+    return {"checks": checks, "mailcow": mc, "ok": not any(c["status"] == "fail" for c in checks), "ipv6": ipv6_enabled(), "existing": existing,
+            "fresh": fresh_facts() if not mc["found"] else None}
 
 
 # ---------------------------------------------------------------- DNS providers (lego)
@@ -405,9 +847,25 @@ def validate_config(c):
         out["lanRanges"] = [str(ipaddress.ip_network(x, strict=False)) for x in ranges]
     except ValueError as e:
         raise StepError("lanRanges: %s" % e)
+    m = c.get("mailcow") or {"mode": "existing"}
+    if m.get("mode") not in ("existing", "install"):
+        raise StepError("mailcow.mode must be existing or install")
+    out["mailcow"] = {"mode": m["mode"]}
+    if m["mode"] == "install":
+        host = str(m.get("hostname", "")).strip().lower()
+        if not re.fullmatch(r"(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", host):
+            raise StepError("the mail server hostname must be a full name like mail.example.com")
+        if host.count(".") == 1 and not m.get("acceptNoSubdomain"):
+            raise StepError("%s has no subdomain; mailcow doesn't fully test that. Use e.g. mail.%s, or confirm it" % (host, host))
+        tz = str(m.get("timezone", ""))
+        if not re.fullmatch(r"[A-Za-z0-9_+/-]{1,64}", tz) or not os.path.exists("/usr/share/zoneinfo/" + tz):
+            raise StepError("choose a valid timezone")
+        if m.get("branch", "master") not in MAILCOW_BRANCHES:
+            raise StepError("mailcow.branch must be master or nightly")
+        out["mailcow"].update(hostname=host, timezone=tz, skipClamd=bool(m.get("skipClamd", False)), branch=m.get("branch", "master"))
     certs = c.get("certs") or {"mode": "mailcow"}
-    if certs.get("mode") not in ("mailcow", "dns01"):
-        raise StepError("certs.mode must be mailcow or dns01")
+    if certs.get("mode") not in ("mailcow", "dns01", "existing"):
+        raise StepError("certs.mode must be mailcow, dns01 or existing")
     if certs["mode"] == "dns01":
         if not out["components"]["edge"]:
             raise StepError("DNS-01 certificates are deployed through the OpenResty edge; enable it")
@@ -429,6 +887,11 @@ def validate_config(c):
         out["certs"] = {"mode": "dns01", "provider": prov, "credentials": creds, "email": email, "domains": sorted(set(doms)),
                         "perDomain": bool(certs.get("perDomain", True)), "wildcard": bool(certs.get("wildcard", True)),
                         "staging": bool(certs.get("staging", False)), "resolvers": resolvers}
+    if certs["mode"] == "existing":
+        cp, kp = str(certs.get("certPath", "")), str(certs.get("keyPath", ""))
+        if not (cp.startswith("/") and kp.startswith("/") and os.path.isfile(cp) and os.path.isfile(kp)):
+            raise StepError("the existing certificate and key files were not found")
+        out["certs"] = {"mode": "existing", "certPath": cp, "keyPath": kp}
     acc = c.get("access") or {"mode": "local"}
     mode = acc.get("mode")
     if mode not in ("local", "lan", "wan", "tunnel"):
@@ -496,7 +959,7 @@ def step_detection(c, r, ctx):
     for f in [CS_DIR + "/acquis.yaml"] + glob.glob(CS_DIR + "/acquis.d/*.yaml"):
         if f in ours or not os.path.exists(f):
             continue
-        txt = open(f).read()
+        txt = "\n".join(l for l in open(f).read().split("\n") if not l.lstrip().startswith("#"))
         dup = [v["name"] for k, v in mc["containers"].items() if k in ("postfix-mailcow", "dovecot-mailcow", "nginx-mailcow") and v["name"] in txt]
         if dup:
             r.log("WARNING: %s already reads %s; remove those entries or every event is counted twice" % (f, ", ".join(dup)))
@@ -506,17 +969,31 @@ def step_detection(c, r, ctx):
 
 
 def step_firewall(c, r, ctx):
-    apt_install(r, ["crowdsec-firewall-bouncer-iptables"])
-    path = CS_DIR + "/bouncers/crowdsec-firewall-bouncer.yaml"
-    txt = open(path).read()
-    m = re.search(r"^iptables_chains:\n((?:[ \t]*#?[ \t]*-[^\n]*\n)+)", txt, re.M)
-    block = "iptables_chains:\n  - INPUT\n  - DOCKER-USER\n"
-    new = txt.replace(m.group(0), block) if m else txt + "\n" + block
-    if write(path, new, 0o600, r):
+    inv = crowdsec_inventory()
+    nft = firewall_uses_nft(inv)
+    if inv["firewall"]:
+        r.log("keeping the installed %s %s" % (inv["firewall"], inv["firewallVersion"]))
+    else:
+        apt_install(r, [FW_PKGS[1] if nft else FW_PKGS[0]])
+    txt = open(FW_CONF).read()
+    if nft:
+        # mailcow's mail ports are DNAT'd by Docker, so they pass the forward hook, not input
+        key, block = "nftables_hooks", "nftables_hooks:\n  - input\n  - forward\n"
+    else:
+        key, block = "iptables_chains", "iptables_chains:\n  - INPUT\n  - DOCKER-USER\n"
+    m = re.search(r"^%s:\n((?:[ \t]*#?[ \t]*-[^\n]*\n)+)" % key, txt, re.M)
+    new = txt.replace(m.group(0), block) if m else txt.rstrip("\n") + "\n\n" + block
+    url = lapi_url()
+    new = re.sub(r"(?m)^api_url:.*$", "api_url: " + url, new)
+    if write(FW_CONF, new, 0o600, r):
         r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"])
     r.sh(["systemctl", "enable", "--now", "crowdsec-firewall-bouncer"])
-    rc, out = run(["iptables", "-S", "DOCKER-USER"])
-    r.log("DOCKER-USER protected" if "CROWDSEC" in out.upper() else "warning: DOCKER-USER rule not found yet")
+    for _ in range(5):
+        ok, how = firewall_covers_docker()
+        if ok:
+            break
+        time.sleep(2)
+    r.log("mail ports protected (%s)" % how if ok else "warning: %s rule not found yet" % how)
 
 
 # --- OpenResty edge
@@ -587,6 +1064,8 @@ def edge_sites(c, ctx):
 def default_cert(c, ctx):
     if c["certs"]["mode"] == "dns01" and ctx.get("main_cert"):
         return ctx["main_cert"]
+    if c["certs"]["mode"] == "existing":
+        return c["certs"]["certPath"], c["certs"]["keyPath"]
     ssl = os.path.join(ctx["mailcow"]["dir"], "data/assets/ssl")
     return os.path.join(ssl, "cert.pem"), os.path.join(ssl, "key.pem")
 
@@ -635,9 +1114,9 @@ def step_edge(c, r, ctx):
           "labels:\n  type: appsec\nlisten_addr: 127.0.0.1:7422\nsource: appsec\n", r=r)
     r.sh(["cscli", "collections", "install"] + APPSEC_COLLECTIONS)
     bconf = CS_DIR + "/bouncers/crowdsec-openresty-bouncer.conf"
-    set_kv(bconf, {"APPSEC_URL": "http://127.0.0.1:7422", "APPSEC_FAILURE_ACTION": "passthrough", "MODE": "live"}, r)
+    set_kv(bconf, {"API_URL": lapi_url().rstrip("/"), "APPSEC_URL": "http://127.0.0.1:7422", "APPSEC_FAILURE_ACTION": "passthrough", "MODE": "live"}, r)
     os.chmod(bconf, 0o600)
-    r.sh(["systemctl", "restart", "crowdsec"])
+    restart_crowdsec(r)
     if moving:
         r.log("moving mailcow's web server to 127.0.0.1:%d/%d so the edge can own ports 80/443" % (EDGE_MAILCOW_HTTP, EDGE_MAILCOW_HTTPS))
         backup(conf_path, r)
@@ -658,11 +1137,16 @@ def step_edge(c, r, ctx):
     else:
         raise StepError("OpenResty did not start (see journalctl -u openresty)")
     ctx.pop("rollback_mailcow_conf", None)
-    # Reload OpenResty when mailcow renews its own certificate.
-    if c["certs"]["mode"] == "mailcow":
-        cert = os.path.join(mc["dir"], "data/assets/ssl/cert.pem")
+    # Reload OpenResty when mailcow (or the existing ACME client) renews the certificate.
+    if c["certs"]["mode"] in ("mailcow", "existing"):
+        cert = c["certs"]["certPath"] if c["certs"]["mode"] == "existing" else os.path.join(mc["dir"], "data/assets/ssl/cert.pem")
+        if cert.startswith("/etc/letsencrypt/"):
+            # certbot swaps symlinks on renewal, which a path watch can miss
+            write("/etc/letsencrypt/renewal-hooks/deploy/cowsec-openresty.sh",
+                  "#!/bin/sh\n# Managed by CowSec: reload the edge after certbot renews.\n"
+                  "systemctl is-active -q openresty && systemctl reload openresty || true\n", 0o755, r=r)
         write("/etc/systemd/system/cowsec-cert-watch.path",
-              "[Unit]\nDescription=Reload OpenResty when mailcow renews its certificate (CowSec)\n\n"
+              "[Unit]\nDescription=Reload OpenResty when the mail certificate is renewed (CowSec)\n\n"
               "[Path]\nPathChanged=%s\n\n[Install]\nWantedBy=multi-user.target\n" % cert, r=r)
         write("/etc/systemd/system/cowsec-cert-watch.service",
               "[Unit]\nDescription=Reload OpenResty after a mailcow certificate change (CowSec)\n\n"
@@ -879,7 +1363,7 @@ def step_cloudflare_realip(c, r, ctx):
           "[Unit]\nDescription=Monthly Cloudflare real-IP refresh (CowSec)\n\n[Timer]\nOnCalendar=monthly\nPersistent=true\n\n"
           "[Install]\nWantedBy=timers.target\n", r=r)
     r.sh(["systemctl", "daemon-reload"])
-    r.sh(["systemctl", "enable", "cowsec-cloudflare-realip.timer"])
+    r.sh(["systemctl", "enable", "--now", "cowsec-cloudflare-realip.timer"])
     r.sh(["systemctl", "start", "cowsec-cloudflare-realip.service"])
 
 
@@ -969,6 +1453,10 @@ def step_access(c, r, ctx):
                 cert, key = ctx["host_certs"][host]
             elif parent and c["certs"]["perDomain"]:
                 cert, key = ctx["domain_certs"][parent]
+        elif c["certs"]["mode"] == "existing":
+            names = cert_names_of(cert)
+            if not any(n == host or (n.startswith("*.") and host.endswith(n[1:]) and host.count(".") == n.count(".")) for n in names):
+                r.log("warning: your existing certificate doesn't cover %s (it has %s); browsers will warn until it does" % (host, ", ".join(names[:6])))
         else:
             mc = ctx["mailcow"]
             san = [s.strip() for s in mc["additionalSan"].split(",") if s.strip()]
@@ -1005,7 +1493,7 @@ def step_finish(c, r, ctx):
     rc, out = r.sh(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"], check=False)
     if rc != 0:
         raise StepError("CrowdSec configuration test failed")
-    r.sh(["systemctl", "restart", "crowdsec"])
+    restart_crowdsec(r)
     time.sleep(5)
     for svc in ("crowdsec", "crowdsec-firewall-bouncer") + (("openresty",) if c["components"]["edge"] else ()):
         rc, _ = run(["systemctl", "is-active", "--quiet", svc])
@@ -1017,6 +1505,9 @@ def step_finish(c, r, ctx):
 
 
 STEPS = [
+    ("docker", "Install Docker from its official repository", lambda c: c["mailcow"]["mode"] == "install" and docker_major() < 24, step_docker),
+    ("mailcow-install", "Install mailcow-dockerized (mailcow's own installer)", lambda c: c["mailcow"]["mode"] == "install", step_mailcow_install),
+    ("adopt", "Take over the existing setup (originals kept)", lambda c: bool(detect_existing()), step_adopt),
     ("crowdsec", "Install CrowdSec and the mail, web and SSH collections", lambda c: True, step_crowdsec),
     ("detection", "Read mailcow's logs and never ban the local network", lambda c: True, step_detection),
     ("firewall", "Firewall bouncer (host services and Docker-published mail ports)", lambda c: True, step_firewall),
@@ -1038,7 +1529,9 @@ def plan(c):
 def install(c, r, progress=None):
     """Runs the enabled steps in order. progress(step_id, state) is called around each step."""
     ctx = {"mailcow": mailcow_info(), "ipv6": ipv6_enabled()}
-    if not ctx["mailcow"]["found"]:
+    if c["mailcow"]["mode"] == "install" and ctx["mailcow"]["found"]:
+        raise StepError("mailcow is already installed; choose 'Protect my existing mailcow'")
+    if c["mailcow"]["mode"] == "existing" and not ctx["mailcow"]["found"]:
         raise StepError("mailcow not found")
     for sid, title, enabled, fn in STEPS:
         if not enabled(c):
@@ -1189,7 +1682,7 @@ def crowdsec_upgrade(r, progress):
     steps = [("backup", "Back up /etc/crowdsec"), ("refresh", "Check package versions"), ("upgrade", "Upgrade CrowdSec and bouncers"),
              ("test", "Test the configuration"), ("restart", "Restart the engine and bouncers"), ("verify", "Verify everything is protecting")]
     progress(None, "plan", [{"id": s, "title": t} for s, t in steps])
-    pkgs = [p for p in ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer")
+    pkgs = [p for p in ("crowdsec",) + FW_PKGS + ("crowdsec-openresty-bouncer",)
             if run(["dpkg-query", "-W", "-f=${Status}", p])[1] == "install ok installed"]
     for sid, title in steps:
         progress(sid, "running")
@@ -1207,7 +1700,7 @@ def crowdsec_upgrade(r, progress):
             if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
                 r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"])
         elif sid == "restart":
-            r.sh(["systemctl", "restart", "crowdsec"])
+            restart_crowdsec(r)
             time.sleep(5)
             r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"])
             if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
@@ -1220,8 +1713,8 @@ def crowdsec_upgrade(r, progress):
                 checks.append({"name": svc + " running", "ok": ok, "detail": ""})
             rc, out = run(["cscli", "lapi", "status"])
             checks.append({"name": "Local API answers", "ok": rc == 0, "detail": ""})
-            rc, out = run(["iptables", "-S", "DOCKER-USER"])
-            checks.append({"name": "Firewall covers mail ports", "ok": "CROWDSEC" in out.upper(), "detail": ""})
+            ok, how = firewall_covers_docker()
+            checks.append({"name": "Firewall covers mail ports", "ok": ok, "detail": how})
             progress(sid, "running", checks=checks)
             if not all(c["ok"] for c in checks):
                 raise StepError("some checks failed: " + ", ".join(c["name"] for c in checks if not c["ok"]))
@@ -1265,12 +1758,12 @@ def mailcow_post_checks(r, ctx_certs=True):
         rc, code = run(["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "-m", "15", "-H", "Host: " + conf.get("MAILCOW_HOSTNAME", ""), "https://127.0.0.1/"])
         check("Edge reaches mailcow", code in ("200", "301", "302"), "HTTP %s" % code)
     # firewall
-    rc, out = run(["iptables", "-S", "DOCKER-USER"])
-    if "CROWDSEC" not in out.upper():
+    ok, how = firewall_covers_docker()
+    if not ok:
         r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"], check=False)
         time.sleep(5)
-        rc, out = run(["iptables", "-S", "DOCKER-USER"])
-    check("Firewall bouncer covers mail ports (DOCKER-USER)", "CROWDSEC" in out.upper())
+        ok, how = firewall_covers_docker()
+    check("Firewall bouncer covers mail ports", ok, how)
     # log acquisition
     acq = CS_DIR + "/acquis.d/cowsec-mailcow.yaml"
     names = {x["name"] for x in mc.get("containers", {}).values()}

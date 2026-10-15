@@ -10,6 +10,7 @@
   cowsec-setup mailcow-api     let the console manage mailcow (domains, mailboxes, queue...) via mailcow's API
   cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
   cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
+  cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys
 
@@ -143,6 +144,11 @@ def revert_edge():
     print(f"{G}mailcow serves ports 80/443 itself again.{N} CrowdSec and the firewall bouncer keep running.")
 
 
+def migrate_legacy():
+    if se.migrate_legacy(se.Runner(echo=True)):
+        print(f"{G}Hand-installed CowSec moved aside;{N} accounts, 2FA and the ban policy are kept.")
+
+
 def main():
     p = argparse.ArgumentParser(description="Set up and manage CowSec.")
     sub = p.add_subparsers(dest="cmd")
@@ -150,7 +156,7 @@ def main():
     i = sub.add_parser("install"); i.add_argument("--config", required=True)
     a = sub.add_parser("access"); a.add_argument("mode", choices=["local", "lan", "wan", "tunnel"])
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
-    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status"); sub.add_parser("mailcow-api")
+    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
     args = p.parse_args()
     need_root()
     try:
@@ -168,6 +174,8 @@ def main():
             reset_wizard()
         elif args.cmd == "revert-edge":
             revert_edge()
+        elif args.cmd == "migrate-legacy":
+            migrate_legacy()
     except se.StepError as e:
         sys.exit(f"{R}error:{N} {e}")
 

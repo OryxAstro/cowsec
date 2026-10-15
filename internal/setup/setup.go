@@ -163,12 +163,16 @@ func (s *Server) requireUnlocked(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// directorySignIn reports whether sign-in through LDAP is already configured (for example,
+// carried over from an earlier install), in which case a local account is optional.
+func directorySignIn() bool { return os.Getenv("COWSEC_LDAP_URL") != "" }
+
 // Routes mounts /api/setup on the wizard listener.
 func (s *Server) Routes(r chi.Router) {
 	s.sessions = map[string]time.Time{}
 	r.Get("/state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]interface{}{"setupMode": true, "wizardOnThisListener": true, "complete": Complete(s.StateDir), "unlocked": s.unlocked(r),
-			"accounts": len(auth.LocalAccounts(s.AuthState)) > 0})
+			"accounts": len(auth.LocalAccounts(s.AuthState)) > 0, "directory": directorySignIn()})
 	})
 	r.Post("/unlock", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
@@ -249,8 +253,23 @@ func (s *Server) Routes(r chi.Router) {
 		writeJSON(w, 200, map[string]string{"status": "started"})
 	}))
 	r.Get("/job", s.requireUnlocked(func(w http.ResponseWriter, r *http.Request) { s.passthrough(w, "job-state", "setup-install") }))
+	// The mailcow admin password CowSec set when it installed mailcow; shown until Finish, then deleted.
+	r.Get("/mailcow-admin", s.requireUnlocked(func(w http.ResponseWriter, r *http.Request) {
+		b, err := os.ReadFile(s.path("mailcow-admin.json"))
+		if err != nil {
+			writeJSON(w, 200, map[string]interface{}{"admin": nil})
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		var v map[string]string
+		if json.Unmarshal(b, &v) != nil {
+			writeJSON(w, 200, map[string]interface{}{"admin": nil})
+			return
+		}
+		writeJSON(w, 200, map[string]interface{}{"admin": v})
+	}))
 	r.Post("/finish", s.requireUnlocked(func(w http.ResponseWriter, r *http.Request) {
-		if len(auth.LocalAccounts(s.AuthState)) == 0 {
+		if len(auth.LocalAccounts(s.AuthState)) == 0 && !directorySignIn() {
 			writeJSON(w, 400, map[string]string{"error": "Create an account first."})
 			return
 		}
@@ -265,6 +284,7 @@ func (s *Server) Routes(r chi.Router) {
 			return
 		}
 		os.Remove(s.path("setup-token"))
+		os.Remove(s.path("mailcow-admin.json"))
 		log.Printf("setup: complete; restarting without the setup listener")
 		writeJSON(w, 200, map[string]bool{"ok": true})
 		go func() {

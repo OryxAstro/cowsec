@@ -91,13 +91,44 @@ sudo cowsec auth local-admin set alice
 
 `certs` can be `{ "mode": "mailcow" }`. For a tunnel, use `"access": { "mode": "tunnel", "tunnelToken": "…" }`. Delete the file afterwards: it holds secrets.
 
+## Servers that already run CrowdSec or a hand-built setup
+
+The pre-flight looks at what is actually running, not where it was installed, and sorts it into three groups.
+
+**Kept and built on:**
+- CrowdSec installed from its apt repository, whatever repo file name you used. Your collections, scenarios, allowlists and `profiles.yaml` are kept; the original profile is saved as `profiles.yaml.pre-cowsec`.
+- An installed firewall bouncer, iptables or nftables. CowSec never swaps one for the other.
+- A local API on a non-default address.
+
+**Taken over by the `adopt` step** (originals saved in `/root/cowsec-adopted-<time>/`):
+- OpenResty sites that CowSec's edge replaces;
+- a Cloudflare real-IP timer;
+- a KVM clock config;
+- CrowdSec log sources that already read mailcow's containers, which would otherwise count every event twice.
+
+Existing certbot certificates can be kept as they are (**Keep my current certificates**). If you switch to DNS-01, certbot's renewal timers and deploy hooks are turned off, and `/etc/letsencrypt` itself is left untouched.
+
+**Refused, with the reason** (no changes made):
+- A CrowdSec container. Two engines would read the same logs and fight over bans.
+- A CrowdSec binary placed by hand rather than installed by apt.
+- An agent-only server that reports to a central CrowdSec elsewhere. Multi-server setups aren't supported yet.
+
+Also shown, as advice:
+- iptables-legacy, where Docker may be using the other backend;
+- ufw or firewalld, whose reloads can drop the bouncer's rules until it restarts.
+
+An earlier hand-installed CowSec (a unit in `/etc/systemd/system` running `/opt/cowsec`) is migrated by the package itself:
+- the old unit, binary and helper move to `/root/cowsec-legacy-<time>/`;
+- settings are renamed to the packaged names;
+- accounts, 2FA and the ban policy are kept.
+
 ## What the installer changes
 
 | Step | Changes |
 |---|---|
 | CrowdSec | Adds the CrowdSec apt repo (signed); installs `crowdsec`; installs the mail, web, SSH and Linux collections. |
 | Detection | `/etc/crowdsec/acquis.d/cowsec-mailcow.yaml` (postfix + dovecot via Docker; web logs from OpenResty or nginx-mailcow); `parsers/s02-enrich/cowsec-private-whitelist.yaml` (your LAN). |
-| Firewall | `crowdsec-firewall-bouncer-iptables`; `iptables_chains: [INPUT, DOCKER-USER]`. |
+| Firewall | Keeps an installed bouncer. Otherwise installs `crowdsec-firewall-bouncer-iptables`. iptables bouncer: `iptables_chains: [INPUT, DOCKER-USER]`. nftables bouncer: `nftables_hooks: [input, forward]`. Both point at the local API that `local_api_credentials.yaml` names. |
 | Certificates | lego (pinned, checksum-verified) in `/usr/lib/cowsec/lego`. Secrets: `/etc/cowsec/dns.env` (root only). Certificates are copied into `data/assets/ssl/` (main + per-domain SNI folders) and `data/conf/postfix/extra.cf` + `cowsec_sni.map`. `SKIP_LETS_ENCRYPT=y`. Renewal runs on `cowsec-certs.timer`. |
 | Edge | OpenResty repo + `openresty`, `crowdsec-openresty-bouncer`; `/usr/local/openresty/nginx/conf/{nginx.conf,cowsec_mailcow_proxy.conf,sites/cowsec-mailcow.conf}`; AppSec on `127.0.0.1:7422`; mailcow.conf `HTTP_BIND/HTTPS_BIND=127.0.0.1`, `HTTP_PORT=8081`, `HTTPS_PORT=8443`. |
 | Cloudflare real IP | `cowsec-cloudflare-realip.timer` (monthly), writes `conf.d/cloudflare_realip.conf`. |

@@ -36,8 +36,8 @@ CS_DIR = "/etc/crowdsec"
 PROFILES = CS_DIR + "/profiles.yaml"
 ABROAD_SCENARIO = CS_DIR + "/scenarios/cowsec-auth-abroad.yaml"
 CS_DB = "/var/lib/crowdsec/data/crowdsec.db"
-PACKAGES = ("cowsec", "crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer", "openresty", "cloudflared")
-UPGRADABLE = ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-openresty-bouncer")
+PACKAGES = ("cowsec", "crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer", "openresty", "cloudflared")
+UPGRADABLE = ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer")  # --only-upgrade skips what isn't installed
 DEFAULT_POLICY = {
     "homeCountries": ["GB"],
     "abroad": {"enabled": False, "smtp": True, "imap": True, "failures": 2, "windowHours": 24},
@@ -98,6 +98,20 @@ def firewall():
                 out["ipsets"][n] = int(m.group(1)) if m else None
     rc, o, _ = run(["iptables", "-S"])
     out["iptablesRules"] = sum(1 for l in o.splitlines() if "CROWDSEC" in l.upper())
+    if shutil.which("nft"):  # nftables bouncer: sets live in its own tables
+        for fam in ("ip", "ip6"):
+            rc, o, _ = run(["nft", "-j", "list", "table", fam, "crowdsec" if fam == "ip" else "crowdsec6"])
+            if rc != 0:
+                continue
+            try:
+                for it in json.loads(o).get("nftables", []):
+                    st = it.get("set")
+                    if st:
+                        out["ipsets"]["%s %s" % (fam, st["name"])] = len(st.get("elem", []))
+                    elif it.get("rule"):
+                        out["iptablesRules"] += 1
+            except ValueError:
+                pass
     return out
 
 def unit_exists(name):
