@@ -25,7 +25,7 @@ const width = (perSec: number) => 1.8 + Math.min(2.4, Math.log10(1 + perSec) * 1
 const fmtN = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(1)}k` : `${Math.round(v)}`);
 const fmtRate = (v: number) => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : '0');
 
-function Node({ x, y, w = 168, title, sub, tone, up, icon }: { x: number; y: number; w?: number; title: string; sub: string; tone: string; up: boolean; icon: ReactNode }) {
+function Node({ x, y, w = 190, title, sub, tone, up, icon }: { x: number; y: number; w?: number; title: string; sub: string; tone: string; up: boolean; icon: ReactNode }) {
   return (
     <g transform={`translate(${x - w / 2} ${y - 26})`}>
       <rect width={w} height="52" rx="14" style={{ fill: 'var(--map-node)' }} stroke={up ? tone : '#f43f5e'} strokeOpacity={up ? 0.55 : 0.9} strokeWidth="1.5" />
@@ -68,37 +68,37 @@ export default function PastureMap({ prev, cur, state }: { prev: FlowSample | nu
   const warming = !prev;
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 overflow-x-auto">
-      <div className="flex items-center justify-between mb-2 min-w-[680px]">
+      <div className="flex items-center justify-between mb-2 min-w-[800px]">
         <p className="text-sm font-semibold text-white">Pasture map <span className="text-slate-500 font-normal">· live traffic and where it's stopped</span></p>
         <p className="text-[11px] font-mono text-slate-500">{warming ? 'totals since CrowdSec started · measuring rates…' : `totals since CrowdSec started · rates over the last ${Math.round(dt)} s`}</p>
       </div>
-      <svg viewBox="0 0 900 270" className="w-full min-w-[680px]" role="img" aria-label="Traffic flow from the internet through the firewall gate and the edge to mailcow">
+      <svg viewBox="0 0 1010 300" className="w-full min-w-[800px]" role="img" aria-label="Traffic flow from the internet through the firewall gate and the edge to mailcow">
         {/* traffic in */}
-        <Flow d="M172 70 L186 70" color="#38bdf8" perSec={web + mail + drop} />
-        <Flow d="M354 70 L396 70" color="#38bdf8" perSec={web} label={`${fmtRate(web)} req/s`} lx={375} ly={50} />
-        <Flow d="M564 70 L616 70" color="#38bdf8" perSec={Math.max(0, web - waf)} />
-        <Flow d="M270 96 C270 150 300 160 396 160" color="#34d399" perSec={mail} label={`${fmtRate(mail)} lines/s · ${fmtN(cur.mailLines)} read`} lx={335} ly={176} />
-        <Flow d="M564 160 L616 160" color="#34d399" perSec={mail} />
+        <Flow d="M200 70 L260 70" color="#38bdf8" perSec={web + mail + drop} />
+        <Flow d="M450 70 L535 70" color="#38bdf8" perSec={web} label={`${fmtRate(web)} req/s`} lx={492} ly={58} />
+        <Flow d="M725 70 L810 70" color="#38bdf8" perSec={Math.max(0, web - waf)} />
+        <Flow d="M365 96 C365 160 420 170 535 170" color="#34d399" perSec={mail} label={`${fmtRate(mail)} lines/s · ${fmtN(cur.mailLines)} read`} lx={445} ly={197} />
+        <Flow d="M725 170 L810 170" color="#34d399" perSec={mail} />
         {/* detections and decisions */}
-        <Flow d="M700 186 C700 238 640 240 564 240" color="#a78bfa" perSec={0} dashed />
-        <Flow d="M415 96 C385 130 385 205 410 226" color="#a78bfa" perSec={0} dashed />
-        <Flow d="M396 240 C300 240 270 200 270 96" color="#fb7185" perSec={0} dashed label="bans" lx={300} ly={232} />
+        <Flow d="M905 196 C905 258 830 262 725 262" color="#a78bfa" perSec={0} dashed />
+        <Flow d="M560 96 C512 132 512 236 535 254" color="#a78bfa" perSec={0} dashed />
+        <Flow d="M535 270 C410 272 316 214 316 96" color="#fb7185" perSec={0} dashed label="bans" lx={296} ly={214} />
 
-        <Node x={88} y={70} title="Internet" sub="the wide pasture" tone="#94a3b8" up icon={I.globe} />
-        <Node x={270} y={70} title="Firewall gate" sub={`${fmtN(state.blockedIPs)} banned · ${fmtN(cur.dropped)} dropped`} tone="#fb7185" up={state.gateUp} icon={I.gate} />
-        <Node x={480} y={70} title="Edge + WAF" sub={`${fmtN(cur.webBlocked)} of ${fmtN(cur.webChecked)} stopped`} tone="#818cf8" up={state.edgeUp} icon={I.shield} />
-        <Node x={700} y={70} title="mailcow web" sub="admin · webmail" tone="#38bdf8" up={state.mailcowUp} icon={I.web} />
-        <Node x={480} y={160} title="Mail ports" sub="SMTP · IMAP" tone="#34d399" up={state.gateUp} icon={I.mail} />
-        <Node x={700} y={160} title="Postfix · Dovecot" sub="mailcow containers" tone="#34d399" up={state.mailcowUp} icon={I.mail} />
-        <Node x={480} y={240} title="CrowdSec" sub="reads logs · decides" tone="#a78bfa" up={state.engineUp} icon={I.dog} />
+        <Node x={105} y={70} title="Internet" sub="the wide pasture" tone="#94a3b8" up icon={I.globe} />
+        <Node x={355} y={70} title="Firewall gate" sub={`${fmtN(state.blockedIPs)} addresses banned`} tone="#fb7185" up={state.gateUp} icon={I.gate} />
+        <Node x={630} y={70} title="Edge + WAF" sub={`${fmtN(cur.webBlocked)} of ${fmtN(cur.webChecked)} stopped`} tone="#818cf8" up={state.edgeUp} icon={I.shield} />
+        <Node x={905} y={70} title="mailcow web" sub="admin · webmail" tone="#38bdf8" up={state.mailcowUp} icon={I.web} />
+        <Node x={630} y={170} title="Mail ports" sub="SMTP · IMAP" tone="#34d399" up={state.gateUp} icon={I.mail} />
+        <Node x={905} y={170} title="Postfix · Dovecot" sub="mailcow containers" tone="#34d399" up={state.mailcowUp} icon={I.mail} />
+        <Node x={630} y={262} title="CrowdSec" sub="reads logs · decides" tone="#a78bfa" up={state.engineUp} icon={I.dog} />
 
         {/* the gate sparks while it drops packets */}
         {(drop > 0 || state.blockedIPs > 0) && (
           <g>
             {[0, 1, 2].map((i) => (
-              <circle key={i} cx={196 + i * 2} cy={58 + i * 12} r="3" fill="#fb7185" className="cs-zap" style={{ animationDelay: `${i * 0.35}s` }} />
+              <circle key={i} cx={220 + i * 9} cy={58 + (i % 2) * 22} r="3" fill="#fb7185" className="cs-zap" style={{ animationDelay: `${i * 0.35}s` }} />
             ))}
-            <text x="196" y="40" fill="#fb7185" fontSize="10.5" fontFamily="ui-monospace, monospace" textAnchor="middle">{drop > 0 ? `${fmtRate(drop)} pkt/s dropped` : 'gate shut to banned IPs'}</text>
+            <text x="355" y="32" fill="#fb7185" fontSize="10.5" fontFamily="ui-monospace, monospace" textAnchor="middle">{drop > 0 ? `${fmtRate(drop)} pkt/s dropped · ${fmtN(cur.dropped)} in total` : `gate shut · ${fmtN(cur.dropped)} packets dropped`}</text>
           </g>
         )}
       </svg>
