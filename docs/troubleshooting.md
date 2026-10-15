@@ -49,3 +49,11 @@ Check that the firewall bouncer hooks Docker traffic: `sudo iptables -S DOCKER-U
 ## Events are counted twice
 
 If another acquisition file also reads mailcow's postfix or dovecot containers, every failed login counts twice. Setup warns about this. Remove the duplicate entries from `/etc/crowdsec/acquis.yaml` or `acquis.d/`.
+
+## OpenResty fails with `module 'resty.http' not found`
+
+The OpenResty bouncer needs the `lua-resty-http` library. Its package script downloads it from OpenResty's package server (`opm`) and silently ignores failures. CowSec checks for it and, if `opm` is unavailable, installs the same tagged release from GitHub (checksum pinned). To fix an older install by hand:
+
+```bash
+sudo opm get ledgetech/lua-resty-http=0.17.1 && sudo systemctl restart openresty
+```

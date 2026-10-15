@@ -37,6 +37,13 @@ LEGO_SHA256 = "2a35505089e7772c92e1e9ac144df91151ef2eca8568630db0ff91fca06d9bef"
 LEGO_URL = "https://github.com/go-acme/lego/releases/download/v{v}/lego_v{v}_linux_amd64.tar.gz".format(v=LEGO_VERSION)
 LEGO_BIN = os.path.join(LIB_DIR, "lego")
 
+# Lua HTTP client the OpenResty bouncer needs. Its package script fetches it with opm and
+# ignores failures, so CowSec checks and falls back to the pinned GitHub release.
+RESTY_HTTP_VERSION = "0.17.1"
+RESTY_HTTP_URL = "https://github.com/ledgetech/lua-resty-http/archive/refs/tags/v%s.tar.gz" % RESTY_HTTP_VERSION
+RESTY_HTTP_SHA256 = "f52a0538b20a2d45025f318c18a138b78f6f88f07713dd0ed502183cb3d16f17"
+RESTY_DIR = "/usr/local/openresty/site/lualib/resty"
+
 # mailcow's web ports move here when the OpenResty edge takes over 80/443 (8080 is CrowdSec's LAPI).
 EDGE_MAILCOW_HTTP = 8081
 EDGE_MAILCOW_HTTPS = 8443
@@ -64,6 +71,7 @@ class Runner:
         for s in self.redact:
             if s:
                 msg = msg.replace(s, "••••")
+        msg = re.sub(r"(?i)(api[ _-]?key\s*[:=]\s*)\S+", r"\1••••", msg)  # e.g. bouncer postinst output
         line = time.strftime("%H:%M:%S ") + msg
         if self.echo:
             print(line, flush=True)
@@ -578,6 +586,27 @@ def default_cert(c, ctx):
     return os.path.join(ssl, "cert.pem"), os.path.join(ssl, "key.pem")
 
 
+def ensure_resty_http(r):
+    if os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
+        r.log("lua-resty-http present")
+        return
+    rc, out = r.sh(["opm", "get", "ledgetech/lua-resty-http=" + RESTY_HTTP_VERSION], check=False)
+    if rc == 0 and os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
+        return
+    r.log("opm unavailable; installing lua-resty-http %s from GitHub (checksum pinned)" % RESTY_HTTP_VERSION)
+    with tempfile.TemporaryDirectory() as td:
+        tgz = os.path.join(td, "resty-http.tgz")
+        download(RESTY_HTTP_URL, tgz, RESTY_HTTP_SHA256)
+        os.makedirs(RESTY_DIR, exist_ok=True)
+        with tarfile.open(tgz) as t:
+            for m in t.getmembers():
+                if m.isfile() and "/lib/resty/" in m.name and m.name.endswith(".lua"):
+                    with open(os.path.join(RESTY_DIR, os.path.basename(m.name)), "wb") as f:
+                        shutil.copyfileobj(t.extractfile(m), f)
+    if not os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
+        raise StepError("could not install lua-resty-http")
+
+
 def step_edge(c, r, ctx):
     mc = ctx["mailcow"]
     osid, ver, code = os_release()
@@ -587,6 +616,7 @@ def step_edge(c, r, ctx):
                  "/usr/share/keyrings/openresty.gpg")
     apt_install(r, ["openresty", "crowdsec-openresty-bouncer"], no_start=True)
     r.sh(["systemctl", "stop", "openresty"], check=False)
+    ensure_resty_http(r)
     os.makedirs("/var/log/openresty", exist_ok=True)
     os.makedirs(NGX + "/sites", exist_ok=True)
     conf_path = os.path.join(mc["dir"], "mailcow.conf")
