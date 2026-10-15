@@ -1,6 +1,10 @@
+<p align="center"><img src="assets/header-ban-policy.svg" alt="" width="100%"></p>
+
 # Ban policy
 
 Configure it in the console under **Herd Rules (Ban policy)**. CowSec writes it into CrowdSec's own configuration, tests it (`crowdsec -t`), reloads, and rolls back if CrowdSec rejects it.
+
+<p align="center"><img src="img/console/ban-policy.webp" alt="Herd Rules: the ban policy page" width="100%"></p>
 
 ## Home countries
 
@@ -31,5 +35,7 @@ This is done with CrowdSec profiles (`GetDecisionsSinceCount`), not extra scenar
 - **The look-back is capped at CrowdSec's history** (`db_config.flush.max_age`, 7 days by default).
 
 ## Allowlists
+
+<p align="center"><img src="img/console/trusted-herd.webp" alt="Trusted Herd: the allowlist page" width="900"></p>
 
 **Trusted Herd** manages a CrowdSec **allowlist** called `cowsec`. Allowlists are checked by the Local API: they stop local detections and also filter community blocklist decisions, take effect immediately, and need no reload. Ranges broader than /8 (IPv4) or /16 (IPv6) are refused.

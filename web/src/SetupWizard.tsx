@@ -107,7 +107,7 @@ export default function SetupWizard() {
   const [pre, setPre] = useState<Preflight | null>(null);
   const [home, setHome] = useState<string[]>([guessCountry()]);
   const [newCountry, setNewCountry] = useState('');
-  const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true });
+  const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true, mailcowApi: true });
 
   const [certMode, setCertMode] = useState<'mailcow' | 'dns01'>('dns01');
   const [providers, setProviders] = useState<string[] | null>(null);
@@ -416,6 +416,8 @@ export default function SetupWizard() {
             hint={pre?.checks.some((c) => c.id === 'ptp' && c.status === 'ok')
               ? "Installs chrony and syncs to the hypervisor's clock (KVM PTP) as well as internet NTP. Accurate time matters for 2FA codes and log timestamps."
               : 'Installs chrony with internet NTP servers. Accurate time matters for 2FA codes and log timestamps.'} />
+          <Toggle on={comp.mailcowApi} onChange={(v) => setComp({ ...comp, mailcowApi: v })} label="Manage mailcow from CowSec" badge="new"
+            hint="Domains, mailboxes, aliases, DKIM, quarantine, mail queue and logs from the console, using mailcow's API (key kept root-only, allowed from this server only)." />
           <Toggle on={comp.banPolicy} onChange={(v) => setComp({ ...comp, banPolicy: v })} label="Smart ban policy" badge="recommended"
             hint="Bans password-spraying bots outside your home countries after 2 failed logins, and doubles ban length for repeat offenders (4h up to 7 days)." />
         </div>

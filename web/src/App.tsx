@@ -1,15 +1,24 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Download, LogOut, Network, Package, Palette, Scale, Server,
-  Settings as SettingsIcon, Shield, ShieldAlert, Sparkles,
+  Settings as SettingsIcon, Shield, ShieldAlert, Sparkles, Home, Globe, Inbox, AtSign, KeyRound, ShieldQuestion, Send, ScrollText,
 } from 'lucide-react';
 import CowSecLogo from './CowSecLogo';
 import CrowdSecConsole, { type CsSubTabType } from './CrowdSecConsole';
 import ErrorBoundary from './ErrorBoundary';
+import { AliasesPanel, DkimPanel, DomainsPanel, FarmOverview, LogsPanel, MailboxesPanel, QuarantinePanel, QueuePanel } from './MailcowPanels';
 import { THEME_PALETTES, type ThemePalette } from './themes';
 import type { Identity } from './session';
 
-const NAV: [string, string, [CsSubTabType, string, ReactNode][]][] = [
+type MailTab = 'farm' | 'domains' | 'mailboxes' | 'aliases' | 'dkim' | 'quarantine' | 'queue' | 'maillogs';
+type Tab = CsSubTabType | MailTab;
+
+const MAIL_PAGES: Record<MailTab, () => ReactNode> = {
+  farm: () => <FarmOverview />, domains: () => <DomainsPanel />, mailboxes: () => <MailboxesPanel />, aliases: () => <AliasesPanel />,
+  dkim: () => <DkimPanel />, quarantine: () => <QuarantinePanel />, queue: () => <QueuePanel />, maillogs: () => <LogsPanel />,
+};
+
+const NAV: [string, string, [Tab, string, ReactNode][]][] = [
   ['The Barn', 'Host', [
     ['host', 'Barn Status', <Server key="i" className="w-4 h-4 shrink-0 text-sky-400" />],
     ['updates', 'Fresh Hay (Updates)', <Download key="i" className="w-4 h-4 shrink-0 text-lime-400" />],
@@ -20,6 +29,16 @@ const NAV: [string, string, [CsSubTabType, string, ReactNode][]][] = [
     ['appsec', 'Electric Fence (WAF)', <ShieldAlert key="i" className="w-4 h-4 shrink-0 text-indigo-400" />],
     ['whitelists', 'Trusted Herd', <CheckCircle2 key="i" className="w-4 h-4 shrink-0 text-emerald-400" />],
   ]],
+  ['The Farm', 'Mail', [
+    ['farm', 'Farmhouse (Overview)', <Home key="i" className="w-4 h-4 shrink-0 text-sky-300" />],
+    ['domains', 'Paddocks (Domains)', <Globe key="i" className="w-4 h-4 shrink-0 text-sky-400" />],
+    ['mailboxes', 'Stalls (Mailboxes)', <Inbox key="i" className="w-4 h-4 shrink-0 text-indigo-300" />],
+    ['aliases', 'Ear Tags (Aliases)', <AtSign key="i" className="w-4 h-4 shrink-0 text-violet-300" />],
+    ['dkim', 'Brand Irons (DKIM)', <KeyRound key="i" className="w-4 h-4 shrink-0 text-amber-300" />],
+    ['quarantine', 'Quarantine Pen', <ShieldQuestion key="i" className="w-4 h-4 shrink-0 text-amber-400" />],
+    ['queue', 'Milk Queue (Mail queue)', <Send key="i" className="w-4 h-4 shrink-0 text-cyan-300" />],
+    ['maillogs', 'Farm Log (Logs)', <ScrollText key="i" className="w-4 h-4 shrink-0 text-slate-300" />],
+  ]],
   ['Herd Watch', 'Detection', [
     ['alerts', 'Moo Alerts', <AlertTriangle key="i" className="w-4 h-4 shrink-0 text-orange-400" />],
     ['hub', 'Feed Store (Hub)', <Package key="i" className="w-4 h-4 shrink-0 text-amber-400" />],
@@ -28,11 +47,11 @@ const NAV: [string, string, [CsSubTabType, string, ReactNode][]][] = [
 ];
 const VALID = NAV.flatMap(([, , items]) => items.map(([id]) => id));
 
-function initialTab(): CsSubTabType {
-  const h = window.location.hash.replace(/^#\/?/, '').split('/')[0] as CsSubTabType;
+function initialTab(): Tab {
+  const h = window.location.hash.replace(/^#\/?/, '').split('/')[0] as Tab;
   if (VALID.includes(h)) return h;
   try {
-    const s = localStorage.getItem('cowsec_tab') as CsSubTabType;
+    const s = localStorage.getItem('cowsec_tab') as Tab;
     if (VALID.includes(s)) return s;
   } catch {
     /* storage unavailable */
@@ -41,7 +60,7 @@ function initialTab(): CsSubTabType {
 }
 
 export default function App({ session, onLogout, onOpenSettings }: { session: Identity; onLogout: () => void; onOpenSettings: () => void }) {
-  const [tab, setTab] = useState<CsSubTabType>(initialTab);
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [theme, setTheme] = useState<ThemePalette>(() => {
     try {
       const t = localStorage.getItem('cowsec_theme') as ThemePalette;
@@ -72,7 +91,7 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const navigate = (t: CsSubTabType) => {
+  const navigate = (t: Tab) => {
     setTab(t);
     if (window.location.hash !== `#/${t}`) window.history.pushState(null, '', `#/${t}`);
     try {
@@ -192,7 +211,7 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
         </aside>
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
           <ErrorBoundary resetKey={tab}>
-            <CrowdSecConsole csSubTab={tab} />
+            {tab in MAIL_PAGES ? MAIL_PAGES[tab as MailTab]() : <CrowdSecConsole csSubTab={tab as CsSubTabType} />}
           </ErrorBoundary>
         </main>
       </div>

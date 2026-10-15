@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -394,7 +395,7 @@ def validate_config(c):
         raise StepError("homeCountries must be ISO country codes, e.g. [\"GB\"]")
     out["homeCountries"] = sorted(set(hc))
     comp = c.get("components") or {}
-    for k, default in (("edge", True), ("adminLanOnly", True), ("cloudflareRealIP", False), ("chronyPtp", False), ("banPolicy", True)):
+    for k, default in (("edge", True), ("adminLanOnly", True), ("cloudflareRealIP", False), ("chronyPtp", False), ("banPolicy", True), ("mailcowApi", True)):
         v = comp.get(k, default)
         if not isinstance(v, bool):
             raise StepError("components.%s must be true/false" % k)
@@ -908,6 +909,36 @@ def step_ban_policy(c, r, ctx):
     r.sh([HOSTCTL], env={"SSH_ORIGINAL_COMMAND": "policy-apply", "SSH_CLIENT": "setup 0 0", "COWSEC_STATE_DIR": STATE_DIR})
 
 
+def step_mailcow_api(c, r, ctx):
+    """Gives CowSec mailcow's API: reuses an existing read-write key (other tools keep
+    working), allows only localhost and mailcow's Docker gateway, and stores the key
+    root-only in /etc/cowsec/mailcow.env."""
+    mc = ctx["mailcow"]
+    conf_path = os.path.join(mc["dir"], "mailcow.conf")
+    conf = read_kv(conf_path)
+    key = conf.get("API_KEY", "")
+    if not re.fullmatch(r"[A-Za-z0-9-]{24,}", key):
+        key = secrets.token_hex(24)
+        r.log("generated a new mailcow API key")
+    else:
+        r.log("reusing mailcow's existing API key")
+    r.redact.append(key)
+    gateway = (conf.get("IPV4_NETWORK") or "172.22.1") + ".1"
+    allow = [a.strip() for a in conf.get("API_ALLOW_FROM", "").split(",") if a.strip()]
+    for a in ("127.0.0.1", "::1", gateway):
+        if a not in allow:
+            allow.append(a)
+    changed = set_kv(conf_path, {"API_KEY": key, "API_ALLOW_FROM": ",".join(allow)}, r)
+    port = conf.get("HTTPS_PORT", "443")
+    write(ETC_DIR + "/mailcow.env",
+          "# mailcow API access for CowSec (root only). Managed by cowsec-setup.\n"
+          'COWSEC_MAILCOW_URL="https://127.0.0.1:%s"\nCOWSEC_MAILCOW_HOST="%s"\nCOWSEC_MAILCOW_API_KEY="%s"\n' % (port, mc["hostname"], key), 0o600)
+    r.log("wrote /etc/cowsec/mailcow.env (key redacted)")
+    if changed:
+        compose(mc["dir"], ["up", "-d"], r)
+    ctx["restart_cowsec"] = True
+
+
 CONSOLE_SITE = """# Managed by CowSec: the console at {host} ({mode}).
 server {{
 {listen}    server_name {host};
@@ -994,6 +1025,7 @@ STEPS = [
     ("realip", "Cloudflare real visitor IPs", lambda c: c["components"]["edge"] and c["components"]["cloudflareRealIP"], step_cloudflare_realip),
     ("chrony", "Accurate clock (chrony)", lambda c: c["components"]["chronyPtp"], step_chrony),
     ("policy", "Ban policy: home countries, abroad login rule, escalating bans", lambda c: c["components"]["banPolicy"], step_ban_policy),
+    ("mailcow-api", "mailcow management API for the console", lambda c: c["components"].get("mailcowApi", True), step_mailcow_api),
     ("access", "Console access", lambda c: True, step_access),
     ("finish", "Test configuration and start everything", lambda c: True, step_finish),
 ]

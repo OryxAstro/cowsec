@@ -15,6 +15,7 @@ import (
 	"github.com/OryxAstro/cowsec/internal/auth"
 	"github.com/OryxAstro/cowsec/internal/crowdsec"
 	"github.com/OryxAstro/cowsec/internal/geo"
+	"github.com/OryxAstro/cowsec/internal/mailcow"
 	"github.com/OryxAstro/cowsec/internal/setup"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -64,6 +65,7 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/auth", authSvc.Routes)
 		r.Route("/crowdsec", func(cr chi.Router) { crowdsec.Routes(cr, host) })
+		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mailcow.FromEnv()) })
 	})
 
 	uiDir := env("COWSEC_UI_DIR", "/usr/share/cowsec/ui")

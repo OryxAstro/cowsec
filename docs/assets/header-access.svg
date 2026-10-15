@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="200" viewBox="0 0 1280 200" font-family="'Plus Jakarta Sans','Segoe UI',Inter,system-ui,-apple-system,sans-serif"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#050a18"/><stop offset="1" stop-color="#0b1530"/></linearGradient><linearGradient id="title" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#e0f2fe"/><stop offset="1" stop-color="#a5b4fc"/></linearGradient><linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399" stop-opacity=".8"/><stop offset=".5" stop-color="#38bdf8" stop-opacity=".45"/><stop offset="1" stop-color="#818cf8" stop-opacity=".8"/></linearGradient><filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="60"/></filter><filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity=".55"/></filter><pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" fill="none" stroke="#94a3b8" stroke-opacity=".06"/></pattern><linearGradient id="g-rose" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fb7185"/><stop offset="1" stop-color="#e11d48"/></linearGradient><marker id="m-rose" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#fb7185"/></marker><linearGradient id="g-indigo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a5b4fc"/><stop offset="1" stop-color="#6366f1"/></linearGradient><marker id="m-indigo" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#a5b4fc"/></marker><linearGradient id="g-sky" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7dd3fc"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient><marker id="m-sky" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#7dd3fc"/></marker><linearGradient id="g-emerald" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6ee7b7"/><stop offset="1" stop-color="#10b981"/></linearGradient><marker id="m-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#6ee7b7"/></marker><linearGradient id="g-amber" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#f59e0b"/></linearGradient><marker id="m-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#fcd34d"/></marker><linearGradient id="g-violet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c4b5fd"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient><marker id="m-violet" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#c4b5fd"/></marker></defs><clipPath id="clip"><rect width="1280" height="200" rx="26"/></clipPath><rect width="1280" height="200" rx="26" fill="url(#bg)"/><g clip-path="url(#clip)"><circle cx="153" cy="20" r="90" fill="#6366f1" opacity=".35" filter="url(#blur)"/><circle cx="1177" cy="90" r="84" fill="#0ea5e9" opacity=".22" filter="url(#blur)"/><circle cx="512" cy="204" r="80" fill="#10b981" opacity=".18" filter="url(#blur)"/><rect width="1280" height="200" fill="url(#grid)"/></g><rect x=".75" y=".75" width="1278.5" height="198.5" rx="25.5" fill="none" stroke="url(#rim)" stroke-width="1.5"/><g transform="translate(52 44) scale(1.75)">
+      <defs>
+        <linearGradient id="haccesscowsecBg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#0b1530" />
+          <stop offset="100%" stop-color="#050a18" />
+        </linearGradient>
+        <linearGradient id="haccesscowsecRim" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#34d399" stop-opacity="0.9" />
+          <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.5" />
+          <stop offset="100%" stop-color="#818cf8" stop-opacity="0.85" />
+        </linearGradient>
+        <linearGradient id="haccesscowsecShield" x1="32" y1="6" x2="32" y2="60" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#10b981" />
+          <stop offset="55%" stop-color="#0ea5e9" />
+          <stop offset="100%" stop-color="#4f46e5" />
+        </linearGradient>
+        <linearGradient id="haccesscowsecShieldInner" x1="32" y1="10" x2="32" y2="56" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#0f2a3a" />
+          <stop offset="100%" stop-color="#0b1530" />
+        </linearGradient>
+        <linearGradient id="haccesscowsecHead" x1="32" y1="18" x2="32" y2="50" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="100%" stop-color="#e2e8f0" />
+        </linearGradient>
+        <linearGradient id="haccesscowsecMuzzle" x1="32" y1="38" x2="32" y2="50" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#fbcfe8" />
+          <stop offset="100%" stop-color="#f472b6" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="16" fill="url(#haccesscowsecBg)" />
+      <rect x="1" y="1" width="62" height="62" rx="15" stroke="url(#haccesscowsecRim)" stroke-width="1.5" />
+      <path d="M32 5.5L52 12.5V30C52 43 43.5 52.5 32 58.5C20.5 52.5 12 43 12 30V12.5L32 5.5Z" fill="url(#haccesscowsecShield)" />
+      <path d="M32 9.2L48.6 15V30.2C48.6 41.2 41.6 49.4 32 54.6C22.4 49.4 15.4 41.2 15.4 30.2V15L32 9.2Z" fill="url(#haccesscowsecShieldInner)" />
+      <path d="M32 9.2L48.6 15V21C42 17.5 37 16.2 32 16.2C27 16.2 22 17.5 15.4 21V15L32 9.2Z" fill="#ffffff" fill-opacity="0.06" />
+      <path d="M21.2 21.5C18.8 19.6 18 16.6 19.2 14.6C20 17 21.9 18.5 24 19.3L21.2 21.5Z" fill="#fde68a" stroke="#f59e0b" stroke-width="0.6" stroke-linejoin="round" />
+      <path d="M42.8 21.5C45.2 19.6 46 16.6 44.8 14.6C44 17 42.1 18.5 40 19.3L42.8 21.5Z" fill="#fde68a" stroke="#f59e0b" stroke-width="0.6" stroke-linejoin="round" />
+      <ellipse cx="18.6" cy="25.4" rx="4.2" ry="2.4" transform="rotate(-24 18.6 25.4)" fill="url(#haccesscowsecHead)" stroke="#94a3b8" stroke-width="0.5" />
+      <ellipse cx="18.9" cy="25.3" rx="2.4" ry="1.15" transform="rotate(-24 18.9 25.3)" fill="#f9a8d4" />
+      <ellipse cx="45.4" cy="25.4" rx="4.2" ry="2.4" transform="rotate(24 45.4 25.4)" fill="url(#haccesscowsecHead)" stroke="#94a3b8" stroke-width="0.5" />
+      <ellipse cx="45.1" cy="25.3" rx="2.4" ry="1.15" transform="rotate(24 45.1 25.3)" fill="#f9a8d4" />
+      <path d="M32 18.2C39.8 18.2 43.4 23.4 43.4 30.4C43.4 34.4 42.2 37.4 40.6 39.6L23.4 39.6C21.8 37.4 20.6 34.4 20.6 30.4C20.6 23.4 24.2 18.2 32 18.2Z" fill="url(#haccesscowsecHead)" />
+      <path d="M24.2 22.4C26.4 21.2 28.6 22 28.8 24C29 26 27 27.4 25.2 26.8C23.8 26.3 22.9 23.9 24.2 22.4Z" fill="#0f172a" />
+      <path d="M38.6 22C40.8 22.6 41.9 25 40.9 26.6C40 28 38 27.9 37.2 26.6C36.4 25.2 37.1 22.3 38.6 22Z" fill="#0f172a" />
+      <path d="M29.2 18.9C30.2 17.2 31.4 16.9 32.3 18.3C33.1 16.8 34.6 17.1 35.1 18.9C33.9 19.6 30.6 19.7 29.2 18.9Z" fill="#0f172a" />
+      <ellipse cx="27.6" cy="29.6" rx="1.9" ry="2.3" fill="#0f172a" />
+      <ellipse cx="36.4" cy="29.6" rx="1.9" ry="2.3" fill="#0f172a" />
+      <circle cx="28.2" cy="28.7" r="0.75" fill="#ffffff" />
+      <circle cx="37" cy="28.7" r="0.75" fill="#ffffff" />
+      <path d="M25.6 26.2L29.4 26.9" stroke="#0f172a" stroke-width="0.9" stroke-linecap="round" />
+      <path d="M38.4 26.2L34.6 26.9" stroke="#0f172a" stroke-width="0.9" stroke-linecap="round" />
+      <ellipse cx="32" cy="41" rx="9.6" ry="6.4" fill="url(#haccesscowsecMuzzle)" stroke="#db2777" stroke-opacity="0.45" stroke-width="0.6" />
+      <ellipse cx="28.6" cy="40.4" rx="1.4" ry="1.9" fill="#831843" />
+      <ellipse cx="35.4" cy="40.4" rx="1.4" ry="1.9" fill="#831843" />
+      <path d="M29.6 44.2C31 45.2 33 45.2 34.4 44.2" stroke="#831843" stroke-width="0.8" stroke-linecap="round" />
+      <circle cx="32" cy="50.6" r="2.6" fill="#10b981" stroke="#ecfdf5" stroke-width="0.6" />
+      <path d="M30.8 50.6L31.7 51.5L33.3 49.8" stroke="#ecfdf5" stroke-width="0.75" stroke-linecap="round" stroke-linejoin="round" />
+    </g><rect x="200" y="50" width="56" height="5" rx="2.5" fill="url(#g-emerald)"/><text x="200" y="98" font-size="38" font-weight="800" fill="url(#title)" letter-spacing="-.5">Console access</text><text x="200" y="128" font-size="15.5" fill="#94a3b8">LAN, Cloudflare Tunnel, internet or SSH only: you choose who can reach the sign-in page</text><rect x="200" y="146" width="48.8" height="26" rx="9" fill="#6ee7b7" fill-opacity=".1" stroke="#6ee7b7" stroke-opacity=".4"/><text x="213" y="163.5" font-size="12" fill="#6ee7b7" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace">LAN</text><rect x="256.8" y="146" width="155.2" height="26" rx="9" fill="#6ee7b7" fill-opacity=".1" stroke="#6ee7b7" stroke-opacity=".4"/><text x="269.8" y="163.5" font-size="12" fill="#6ee7b7" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace">Cloudflare Tunnel</text><rect x="420" y="146" width="86.8" height="26" rx="9" fill="#6ee7b7" fill-opacity=".1" stroke="#6ee7b7" stroke-opacity=".4"/><text x="433" y="163.5" font-size="12" fill="#6ee7b7" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace">Internet</text><rect x="514.8" y="146" width="86.8" height="26" rx="9" fill="#6ee7b7" fill-opacity=".1" stroke="#6ee7b7" stroke-opacity=".4"/><text x="527.8" y="163.5" font-size="12" fill="#6ee7b7" font-family="'JetBrains Mono','SFMono-Regular',Consolas,monospace">SSH only</text></svg>

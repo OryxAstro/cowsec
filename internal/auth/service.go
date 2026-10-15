@@ -589,7 +589,8 @@ func (s *Service) HandleVerify(w http.ResponseWriter, r *http.Request) {
 func (s *Service) HandleMe(w http.ResponseWriter, r *http.Request) {
 	_, sess, ok := s.sessionFor(r)
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+		// Not signed in is a normal answer here (the UI asks on every load), not an error.
+		writeJSON(w, http.StatusOK, map[string]interface{}{"identity": nil})
 		return
 	}
 	_, enrolled := s.store.TOTP(sess.User)

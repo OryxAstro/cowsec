@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/header-install.svg" alt="" width="100%"></p>
+
 # Installing CowSec
 
 > [!TIP]

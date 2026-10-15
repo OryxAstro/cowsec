@@ -1,4 +1,8 @@
+<p align="center"><img src="assets/header-troubleshooting.svg" alt="" width="100%"></p>
+
 # Troubleshooting
+
+<p align="center"><img src="assets/where-to-look.svg" alt="Where to look first" width="100%"></p>
 
 ## Where to look
 
@@ -11,6 +15,10 @@ sudo cscli metrics                  # acquisition, parsers, bouncers
 ```
 
 ## I locked myself out of mail or the console
+
+<p align="center"><img src="img/console/decisions.webp" alt="Banned from the Herd: search for your IP and click Unblock" width="900"></p>
+
+You can also lift a ban in the console: **Banned from the Herd** → search for the IP → **Unblock**. Or from the server:
 
 Lift the ban from the server:
 

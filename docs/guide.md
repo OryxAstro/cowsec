@@ -87,6 +87,7 @@ CrowdSec, the mailcow log readers and the firewall bouncer are always installed.
 | **Admin pages on the local network only** | `/admin` and `/domainadmin` answer only from private addresses. Webmail and ActiveSync stay public. |
 | **Behind Cloudflare's proxy** | Trusts `CF-Connecting-IP` from Cloudflare's ranges (refreshed monthly), so bans hit visitors rather than Cloudflare. |
 | **Accurate clock** | chrony with internet NTP; on KVM guests it also uses the hypervisor's clock. |
+| **Manage mailcow from CowSec** | Domains, mailboxes, aliases, DKIM, quarantine, queue and logs from the console, via mailcow's API (localhost only). |
 | **Smart ban policy** | Stricter rule for failed logins from abroad, plus escalating bans for repeat offenders. |
 
 <p align="center"><img src="img/setup/03-protection.webp" alt="Protection options" width="900"></p>
@@ -151,7 +152,7 @@ The first time, scan the QR code with an authenticator app (Microsoft Authentica
 
 ## 10. A tour of the console
 
-The sidebar has three groups: **The Barn** (the host), **Fence & Gate** (protection) and **Herd Watch** (detection).
+The sidebar has four groups: **The Barn** (the host), **Fence & Gate** (protection), **The Farm** (mailcow management, see [Managing mailcow](mailcow.md)) and **Herd Watch** (detection).
 
 ### Barn Status
 

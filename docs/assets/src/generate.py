@@ -220,8 +220,170 @@ def ban_ladder():
     return canvas(w, h, b)
 
 
+# ------------------------------------------------------------------ page headers
+PAGES = {
+    "install": ("Requirements & headless install", "What CowSec needs, what it changes, and installing from a config file", "sky", ["Debian · Ubuntu", "amd64", "mailcow-dockerized", "idempotent"]),
+    "access": ("Console access", "LAN, Cloudflare Tunnel, internet or SSH only: you choose who can reach the sign-in page", "emerald", ["LAN", "Cloudflare Tunnel", "Internet", "SSH only"]),
+    "certificates": ("Certificates", "DNS-01 through 190+ DNS providers, one certificate per domain, renewed automatically", "sky", ["lego", "DNS-01", "wildcards", "per-domain SNI"]),
+    "ban-policy": ("Ban policy", "Home countries, the abroad login rule, escalating bans and your trusted herd", "amber", ["home countries", "auth-abroad", "4h → 7 days", "allowlists"]),
+    "security": ("Security model", "How CowSec protects itself: privileges, sign-in, the setup token and what leaves the server", "violet", ["root + allowlist", "2FA", "CSRF", "no telemetry"]),
+    "maintenance": ("Maintenance", "Updating CowSec, CrowdSec and the hub, changing your choices, reverting and uninstalling", "indigo", ["signed packages", "backups", "revert-edge", "apt remove"]),
+    "troubleshooting": ("Troubleshooting", "Where to look first, and fixes for the problems people actually hit", "rose", ["lock-outs", "clocks", "certificates", "OpenResty"]),
+    "architecture": ("Architecture", "How the console, the helper, CrowdSec, the edge and mailcow fit together", "emerald", ["Go", "Python", "React", "CrowdSec"]),
+    "mailcow": ("Managing mailcow", "Domains, mailboxes, aliases, DKIM, quarantine, the mail queue and logs, from CowSec", "sky", ["mailcow API", "validated", "audited", "localhost only"]),
+}
+
+
+def page_header(key):
+    title, sub, acc, chips = PAGES[key]
+    w, h = 1280, 200
+    a, _ = ACCENT[acc]
+    b = cow_logo("h" + key.replace("-", ""), 52, 44, 112)
+    b += '<rect x="200" y="50" width="56" height="5" rx="2.5" fill="url(#g-%s)"/>' % acc
+    b += '<text x="200" y="98" font-size="38" font-weight="800" fill="url(#title)" letter-spacing="-.5">%s</text>' % esc(title)
+    b += '<text x="200" y="128" font-size="15.5" fill="#94a3b8">%s</text>' % esc(sub)
+    x = 200
+    for c in chips:
+        cw = len(c) * 7.6 + 26
+        b += ('<rect x="%g" y="146" width="%g" height="26" rx="9" fill="%s" fill-opacity=".1" stroke="%s" stroke-opacity=".4"/>'
+              '<text x="%g" y="163.5" font-size="12" fill="%s" font-family="%s">%s</text>' % (x, cw, a, a, x + 13, a, MONO, esc(c)))
+        x += cw + 8
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ access modes
+def access_modes():
+    w, h = 1440, 560
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">Four ways to reach the console</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">The console always listens on 127.0.0.1:8090. The access mode decides what, if anything, publishes it.</text>'
+    modes = [("Local network", "emerald", "LAN only", ["your browser on the LAN", "OpenResty :443 · allow LAN ranges", "everyone else: 403"], "Most homes and offices"),
+             ("Cloudflare Tunnel", "amber", "no open ports", ["your browser anywhere", "Cloudflare Access login", "cloudflared dials out"], "Remote access, safest"),
+             ("Internet", "rose", "public sign-in page", ["anyone", "CrowdSec + WAF + rate limits", "password + 2FA"], "When a tunnel isn't possible"),
+             ("This server only", "sky", "nothing exposed", ["ssh -L 8090:127.0.0.1:8090", "your laptop: localhost:8090", "zero network exposure"], "Maximum lock-down")]
+    cw, gap, y0 = 318, 22, 130
+    for i, (t, acc, tag, steps, best) in enumerate(modes):
+        x = 48 + i * (cw + gap)
+        a, _ = ACCENT[acc]
+        b += card(x, y0, cw, 380, t, tag, acc)
+        yy = y0 + 100
+        for j, st in enumerate(steps):
+            b += '<rect x="%d" y="%d" width="%d" height="46" rx="12" fill="%s" fill-opacity=".08" stroke="%s" stroke-opacity=".35"/>' % (x + 20, yy, cw - 40, a, a)
+            b += '<text x="%d" y="%d" font-size="13" fill="#e2e8f0" text-anchor="middle">%s</text>' % (x + cw / 2, yy + 28, esc(st))
+            if j < len(steps) - 1:
+                b += arrow("M%d %d V%d" % (x + cw / 2, yy + 47, yy + 66), acc)
+            yy += 70
+        b += '<text x="%d" y="%d" font-size="12.5" fill="%s" font-weight="700" text-anchor="middle">%s</text>' % (x + cw / 2, y0 + 360, a, esc(best))
+    b += '<text x="48" y="540" font-size="12.5" fill="#64748b">Switch any time: <tspan font-family="%s" fill="#a5b4fc">sudo cowsec-setup access lan|tunnel|wan|local</tspan></text>' % MONO
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ certificates
+def cert_flow():
+    w, h = 1440, 600
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">DNS-01 certificates, end to end</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">No port 80: Let&apos;s Encrypt checks a TXT record in your DNS. The daily timer renews and only redeploys when something changed.</text>'
+    b += card(48, 130, 250, 200, "lego", "on your server", "emerald", [("Requests a certificate", "per domain, with wildcards"), ("Writes a TXT record", "via your provider's API")])
+    b += card(360, 130, 250, 200, "Your DNS provider", "190+ supported", "sky", [("_acme-challenge TXT", "created, then removed"), ("Credentials root-only", "/etc/cowsec/dns.env")])
+    b += card(672, 130, 250, 200, "Let's Encrypt", "ACME", "indigo", [("Checks the TXT record", "at authoritative servers"), ("Issues the certificate", "90 days, renewed early")])
+    b += card(984, 130, 408, 200, "Deployed to", "per-hostname SNI", "amber", [("Web: OpenResty edge", "one server block per domain"), ("IMAP: dovecot SNI folders", "data/assets/ssl/<domain>/"), ("SMTP: postfix SNI map", "extra.cf · cowsec_sni.map")])
+    b += arrow("M298 230 H360", "emerald", "TXT", 329, 212)
+    b += arrow("M610 230 H672", "sky", "verify", 641, 212)
+    b += arrow("M922 230 H984", "indigo", "cert", 953, 212)
+    # per-domain vs shared
+    b += '<text x="48" y="392" font-size="18" font-weight="800" fill="#fff">Why one certificate per domain</text>'
+    b += card(48, 412, 650, 150, "Shared certificate", "what a visitor to mail.example.org sees", "rose", [], chips=("example.com", "example.org", "client-one.co.uk", "client-two.com", "family.net", "…every domain"))
+    b += card(742, 412, 650, 150, "One per domain (default)", "what a visitor to mail.example.org sees", "emerald", [], chips=("example.org", "*.example.org"))
+    b += '<text x="1066" y="530" font-size="12.5" fill="#94a3b8" text-anchor="middle">Your other domains stay private.</text>'
+    b += '<text x="374" y="550" font-size="12.5" fill="#94a3b8" text-anchor="middle">Anyone can list everyone you host.</text>'
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ security model
+def security_layers():
+    w, h = 1440, 620
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">Layers between a browser and your server</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">Each layer has to be passed in order. Secrets stay in root-only files and never reach the browser or the logs.</text>'
+    layers = [("Network", "rose", "access mode · firewall bouncer · edge bouncer · AppSec WAF"),
+              ("TLS", "sky", "HTTPS for every connection that leaves the server · modern TLS only"),
+              ("Sign-in", "indigo", "local account or LDAP · rate limits per IP and per user · audit log"),
+              ("Second factor", "violet", "TOTP with replay protection, or Duo Push · always required"),
+              ("Session", "amber", "HttpOnly + SameSite=Strict cookie · idle and absolute timeouts · CSRF header"),
+              ("Privileged work", "emerald", "cowsec-hostctl: a fixed allowlist of verbs · jobs in transient systemd units")]
+    y = 128
+    for i, (t, acc, d) in enumerate(layers):
+        a, _ = ACCENT[acc]
+        inset = i * 26
+        b += '<g filter="url(#shadow)"><rect x="%d" y="%d" width="%d" height="62" rx="16" fill="#0d152a" fill-opacity=".92" stroke="%s" stroke-opacity=".5"/></g>' % (48 + inset, y, 860 - 2 * inset, a)
+        b += '<rect x="%d" y="%d" width="5" height="38" rx="2.5" fill="url(#g-%s)"/>' % (66 + inset, y + 12, acc)
+        b += '<text x="%d" y="%d" font-size="16" font-weight="800" fill="#fff">%s</text>' % (86 + inset, y + 28, esc(t))
+        b += '<text x="%d" y="%d" font-size="12.5" fill="#94a3b8">%s</text>' % (86 + inset, y + 48, esc(d))
+        y += 76
+    b += card(960, 128, 432, 280, "Secrets vault", "root-only, mode 0600", "amber",
+              [("/etc/cowsec/cowsec.env", "LDAP bind, Duo keys"), ("/etc/cowsec/dns.env", "DNS provider credentials"), ("/etc/cowsec/mailcow.env", "mailcow API key"), ("/var/lib/cowsec/", "accounts, TOTP, sessions, certificates")])
+    b += card(960, 430, 432, 160, "Nothing phones home", "no telemetry", "emerald", [("GeoIP and fonts are local", ""), ("Downloads: signed repos, pinned hashes", "")])
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ maintenance
+def upgrade_flow():
+    w, h = 1440, 330
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">Safe upgrades from Fresh Hay</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">Every upgrade runs as a background job with a live log; your configuration files are kept.</text>'
+    steps = [("Check", "apt-get update", "sky"), ("Back up", "/etc/crowdsec → tgz", "amber"), ("Upgrade", "keep your configs", "indigo"),
+             ("Test", "crowdsec -t · openresty -t", "violet"), ("Restart", "engine · bouncer · edge", "emerald"), ("Verify", "services · LAPI status", "emerald")]
+    cw, gap = 206, 20
+    for i, (t, d, acc) in enumerate(steps):
+        x = 48 + i * (cw + gap)
+        b += card(x, 130, cw, 130, t, None, acc)
+        b += '<text x="%d" y="%d" font-size="12.5" fill="#cbd5e1">%s</text>' % (x + 20, 214, esc(d))
+        if i < len(steps) - 1:
+            b += arrow("M%d 195 H%d" % (x + cw + 2, x + cw + gap - 2), acc)
+    b += '<text x="48" y="300" font-size="12.5" fill="#64748b">If the configuration test fails, nothing is restarted. Your previous configuration is in the backup tarball.</text>'
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ troubleshooting
+def where_to_look():
+    w, h = 1440, 420
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">Where to look first</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">Most problems show up in one of these places within a minute.</text>'
+    items = [("Locked out?", "rose", ["cscli decisions delete --ip <ip>", "cscli allowlists add cowsec <ip>"]),
+             ("2FA codes rejected?", "amber", ["timedatectl", "cowsec auth totp reset <user>"]),
+             ("Setup or upgrade failed?", "indigo", ["/var/lib/cowsec/jobs/*.log", "journalctl -t cowsec-hostctl"]),
+             ("Console won't load?", "sky", ["systemctl status cowsec", "journalctl -u cowsec -n 100"]),
+             ("Web or WAF problem?", "violet", ["journalctl -u openresty", "openresty -t"]),
+             ("Bans not biting?", "emerald", ["iptables -S DOCKER-USER", "cscli metrics"])]
+    cw, ch = 432, 120
+    for i, (t, acc, cmds) in enumerate(items):
+        x = 48 + (i % 3) * (cw + 24)
+        y = 130 + (i // 3) * (ch + 22)
+        b += card(x, y, cw, ch, t, None, acc)
+        for j, c in enumerate(cmds):
+            b += '<text x="%d" y="%d" font-size="12.5" fill="#cbd5e1" font-family="%s">$ %s</text>' % (x + 20, y + 72 + j * 22, MONO, esc(c))
+    return canvas(w, h, b)
+
+
+# ------------------------------------------------------------------ mailcow management
+def mailcow_flow():
+    w, h = 1440, 470
+    b = '<text x="48" y="64" font-size="28" font-weight="800" fill="url(#title)">Managing mailcow without its admin UI</text>'
+    b += '<text x="48" y="94" font-size="14.5" fill="#94a3b8">CowSec calls mailcow&apos;s own API on localhost. Only validated operations are exposed, and every change lands in CowSec&apos;s audit log.</text>'
+    b += card(48, 130, 330, 290, "You, in CowSec", "2FA sign-in", "amber", [("Farmhouse", "containers · versions · storage"), ("Paddocks · Stalls · Ear Tags", "domains · mailboxes · aliases"), ("Brand Irons", "DKIM keys + DNS records"), ("Quarantine · Milk Queue · Farm Log", "release · retry · read")])
+    b += card(470, 160, 330, 230, "CowSec server", "127.0.0.1:8090", "emerald", [("Validates every field", "domains, addresses, quotas"), ("Fixed set of operations", "no raw API pass-through"), ("Audit log", "who changed what, when")])
+    b += card(892, 130, 500, 290, "mailcow API", "https://127.0.0.1 · X-API-Key", "sky", [("Key stays root-only", "/etc/cowsec/mailcow.env"), ("API_ALLOW_FROM", "localhost + mailcow's Docker gateway"), ("Existing key reused", "your other tools keep working")],
+              chips=("domains", "mailboxes", "aliases", "dkim", "quarantine", "mailq", "logs", "status"))
+    b += arrow("M378 275 H470", "amber", "HTTPS", 424, 257)
+    b += arrow("M800 275 H892", "emerald", "API", 846, 257)
+    b += '<text x="48" y="450" font-size="12.5" fill="#64748b">Enable it in the setup wizard, or on an existing install: <tspan font-family="%s" fill="#a5b4fc">sudo cowsec-setup mailcow-api</tspan></text>' % MONO
+    return canvas(w, h, b)
+
+
 if __name__ == "__main__":
-    for name, fn in (("banner", banner), ("architecture", architecture), ("setup-flow", setup_flow), ("ban-ladder", ban_ladder)):
+    jobs = [("banner", banner), ("architecture", architecture), ("setup-flow", setup_flow), ("ban-ladder", ban_ladder),
+            ("access-modes", access_modes), ("cert-flow", cert_flow), ("security-layers", security_layers), ("upgrade-flow", upgrade_flow),
+            ("where-to-look", where_to_look), ("mailcow-flow", mailcow_flow)]
+    jobs += [("header-" + k, (lambda k: lambda: page_header(k))(k)) for k in PAGES]
+    for name, fn in jobs:
         with open(os.path.join(OUT, name + ".svg"), "w") as f:
             f.write(fn())
         print("wrote docs/assets/%s.svg" % name)

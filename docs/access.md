@@ -1,4 +1,8 @@
+<p align="center"><img src="assets/header-access.svg" alt="" width="100%"></p>
+
 # Reaching the console
+
+<p align="center"><img src="assets/access-modes.svg" alt="The four access modes" width="100%"></p>
 
 The console itself always listens on `127.0.0.1:8090`. How it is published depends on the access mode. Sign-in always needs a password **and** a second factor (TOTP or Duo), is rate-limited per IP and per user, and every change is written to the audit log.
 
@@ -18,6 +22,8 @@ sudo cowsec-setup access local
 ```
 
 ## LAN
+
+<p align="center"><img src="img/setup/05-access.webp" alt="Choosing console access in the setup wizard" width="820"></p>
 
 Point the hostname at the server in your **local** DNS (router, Pi-hole, AdGuard, Blocky...). The certificate comes from your DNS-01 setup. With mailcow's own Let's Encrypt, the hostname is added to `ADDITIONAL_SAN`, so it must also resolve publicly for the HTTP-01 check, even though the console then refuses non-LAN visitors.
 

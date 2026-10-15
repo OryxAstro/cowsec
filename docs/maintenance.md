@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/header-maintenance.svg" alt="" width="100%"></p>
+
 # Updating, reverting and uninstalling
 
 ## Updating CowSec
@@ -10,6 +12,10 @@ sudo apt install ./cowsec_<new-version>_amd64.deb
 Settings, accounts, the ban policy and certificates are kept.
 
 ## Updating CrowdSec and the bouncers
+
+<p align="center"><img src="assets/upgrade-flow.svg" alt="Safe upgrade steps" width="100%"></p>
+
+<p align="center"><img src="img/console/updates.webp" alt="Fresh Hay: the updates page" width="900"></p>
 
 Use **Fresh Hay (Updates)** in the console:
 

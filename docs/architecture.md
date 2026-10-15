@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/header-architecture.svg" alt="" width="100%"></p>
+
 # How it fits together
 
 <p align="center"><img src="assets/architecture.svg" alt="CowSec architecture" width="100%"></p>

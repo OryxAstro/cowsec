@@ -82,6 +82,20 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+**🏡 The Farm: mailcow management** *(new)*
+Run mailcow's day-to-day admin from CowSec, behind its 2FA sign-in and audit log:
+- domains and mailboxes, including quotas, password resets and last logins;
+- aliases and catch-alls;
+- DKIM keys with ready-to-paste DNS records;
+- the quarantine, the mail queue (retry / hold / delete) and mailcow's logs.
+
+It uses mailcow's own API, restricted to localhost. [Learn more →](docs/mailcow.md)
+
+</td>
+</tr>
 </table>
 
 ## How it works
@@ -120,6 +134,11 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | <img src="docs/img/console/ban-policy.webp" alt="Ban policy"> | <img src="docs/img/console/decisions.webp" alt="Decisions"> |
 | <img src="docs/img/console/appsec-waf.webp" alt="AppSec WAF"> | <img src="docs/img/console/updates.webp" alt="Updates"> |
 
+| mailcow management | |
+|---|---|
+| <img src="docs/img/mail/farm.webp" alt="Farmhouse"> | <img src="docs/img/mail/mailboxes.webp" alt="Mailboxes"> |
+| <img src="docs/img/mail/dkim.webp" alt="DKIM"> | <img src="docs/img/mail/queue.webp" alt="Mail queue"> |
+
 </details>
 
 ## Documentation
@@ -131,6 +150,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🌐 [Console access](docs/access.md) | LAN, Cloudflare Tunnel, internet, SSH |
 | 🔐 [Certificates](docs/certificates.md) | DNS-01 providers, per-domain certificates, renewal |
 | 🐄 [Ban policy](docs/ban-policy.md) | Home countries, abroad rule, escalation, allowlists |
+| 🏡 [Managing mailcow](docs/mailcow.md) | Domains, mailboxes, aliases, DKIM, quarantine, queue, logs |
 | 🛡️ [Security model](docs/security.md) | Privileges, sign-in, setup token, what leaves the server |
 | 🔧 [Maintenance](docs/maintenance.md) | Updates, reverting the edge, uninstalling |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Lock-outs, clocks, certificates, OpenResty |

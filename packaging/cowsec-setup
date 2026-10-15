@@ -7,6 +7,7 @@
                                headless install from a JSON config (same format as the wizard)
   cowsec-setup access local|lan|wan|tunnel [--hostname NAME] [--tunnel-token TOKEN]
                                change how the console is reached
+  cowsec-setup mailcow-api     let the console manage mailcow (domains, mailboxes, queue...) via mailcow's API
   cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
   cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
 """
@@ -103,6 +104,16 @@ def access(mode, hostname, token):
     print(f"{G}Console access is now: {mode}{N}")
 
 
+def mailcow_api():
+    r = se.Runner(echo=True)
+    ctx = {"mailcow": se.mailcow_info(), "ipv6": se.ipv6_enabled()}
+    if not ctx["mailcow"]["found"]:
+        sys.exit("mailcow not found")
+    se.step_mailcow_api({"components": {}}, r, ctx)
+    subprocess.run(["systemctl", "restart", "cowsec"])
+    print(f"{G}The console can now manage mailcow.{N}")
+
+
 def reset_wizard():
     for f in ("setup-complete", "setup-token"):
         p = os.path.join(STATE, f)
@@ -139,7 +150,7 @@ def main():
     i = sub.add_parser("install"); i.add_argument("--config", required=True)
     a = sub.add_parser("access"); a.add_argument("mode", choices=["local", "lan", "wan", "tunnel"])
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
-    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status")
+    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status"); sub.add_parser("mailcow-api")
     args = p.parse_args()
     need_root()
     try:
@@ -151,6 +162,8 @@ def main():
             install(args.config)
         elif args.cmd == "access":
             access(args.mode, args.hostname, args.tunnel_token)
+        elif args.cmd == "mailcow-api":
+            mailcow_api()
         elif args.cmd == "reset-wizard":
             reset_wizard()
         elif args.cmd == "revert-edge":

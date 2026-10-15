@@ -1,4 +1,8 @@
+<p align="center"><img src="assets/header-security.svg" alt="" width="100%"></p>
+
 # Security model
+
+<p align="center"><img src="assets/security-layers.svg" alt="Security layers" width="100%"></p>
 
 ## Privileges
 
@@ -14,6 +18,8 @@ cscli calls are built from validated arguments: hub item names come from cscli's
 
 ## Sign-in
 
+<p align="center"><img src="img/console/enrol-2fa.webp" alt="Every account enrols an authenticator app" width="720"></p>
+
 - **Password step:** a local account (bcrypt, cost 12) or an LDAP bind. The LDAP path supports group restriction and LDAPS with name verification.
 - **Second factor (always required):** TOTP with replay protection, or Duo Push for directory accounts.
 - **Brute-force protection:** per-IP and per-user rate limits, and failed logins are written to `/var/lib/cowsec/audit.log`.
@@ -23,6 +29,8 @@ cscli calls are built from validated arguments: hub item names come from cscli's
 - **Trusted proxies:** the client IP is taken from `X-Forwarded-For` only when the request comes from a trusted proxy (`127.0.0.1` by default: the edge or cloudflared).
 
 ## Setup wizard
+
+<p align="center"><img src="img/setup/01-unlock.webp" alt="The setup wizard is unlocked with a one-time token" width="720"></p>
 
 - It runs on its own listener (`:9443`) with a fresh self-signed certificate. The SHA-256 fingerprint is printed by `cowsec-setup` so you can check it.
 - It is unlocked with a 192-bit one-time token from a root-only file. Wrong tokens are rate-limited.
@@ -43,6 +51,7 @@ cscli calls are built from validated arguments: hub item names come from cscli's
 |---|---|
 | `/etc/cowsec/cowsec.env` | Settings; LDAP bind password and Duo keys if you use them (0600). |
 | `/etc/cowsec/dns.env` | DNS provider credentials (0600). |
+| `/etc/cowsec/mailcow.env` | mailcow API key, if mailcow management is enabled (0600). |
 | `/var/lib/cowsec/auth-state.json` | Account hashes, TOTP secrets, sessions (0600). |
 | `/var/lib/cowsec/certs/`, `/var/lib/cowsec/acme/` | Private keys (0600/0700). |
 
