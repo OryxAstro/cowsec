@@ -710,3 +710,31 @@ main .bg-slate-950\/80 {
 [data-mode="light"] .bg-clip-text {
   background-image: linear-gradient(90deg var(--in-oklab), #0f172a 0%, var(--accent-solid) 70%, var(--accent-to) 100%) !important;
 }
+
+/* Pipeline stages: an orbiting ring while running, task-specific motion, draw-in on completion */
+@keyframes cs-orbit-k { to { transform: rotate(360deg); } }
+.cs-orbit { animation: cs-orbit-k 1.4s linear infinite; -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); }
+@keyframes cs-m-drop-k { 0% { transform: translateY(-4px); opacity: .35; } 55% { transform: translateY(2px); opacity: 1; } 100% { transform: translateY(2px); opacity: 0; } }
+@keyframes cs-m-sweep-k { 0%, 100% { transform: translate(-2.5px, 1px) rotate(-10deg); } 50% { transform: translate(2.5px, -1.5px) rotate(10deg); } }
+@keyframes cs-m-pulse-k { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.16); } }
+@keyframes cs-m-beat-k { 0%, 40%, 100% { transform: scale(1); } 10% { transform: scale(1.22); } 25% { transform: scale(1.12); } }
+@keyframes cs-m-lid-k { 0%, 100% { transform: translateY(0) rotate(0); } 30% { transform: translateY(-3px) rotate(-7deg); } 60% { transform: translateY(0) rotate(5deg); } }
+@keyframes cs-m-rise-k { 0% { transform: translateY(4px); opacity: .4; } 70% { opacity: 1; } 100% { transform: translateY(-4px); opacity: 0; } }
+@keyframes cs-m-wobble-k { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(12deg); } }
+@keyframes cs-m-spin-k { to { transform: rotate(360deg); } }
+.cs-m-drop { animation: cs-m-drop-k 1.1s ease-in infinite; }
+.cs-m-sweep { animation: cs-m-sweep-k 1.6s ease-in-out infinite; }
+.cs-m-pulse { animation: cs-m-pulse-k 1.2s ease-in-out infinite; }
+.cs-m-beat { animation: cs-m-beat-k 1.3s ease-in-out infinite; }
+.cs-m-lid { animation: cs-m-lid-k 1.2s ease-in-out infinite; transform-origin: 50% 80%; }
+.cs-m-rise { animation: cs-m-rise-k 1.2s ease-out infinite; }
+.cs-m-wobble { animation: cs-m-wobble-k 1s ease-in-out infinite; transform-origin: 50% 90%; }
+.cs-m-spin { animation: cs-m-spin-k 1.6s linear infinite; }
+@keyframes cs-draw-k { from { stroke-dashoffset: 64; } to { stroke-dashoffset: 0; } }
+.cs-draw :is(path, line, polyline, circle, rect, polygon) { stroke-dasharray: 64; stroke-dashoffset: 64; animation: cs-draw-k .9s cubic-bezier(.65, 0, .35, 1) forwards; }
+@keyframes cs-flowbar-k { from { background-position: 0 0; } to { background-position: 40px 0; } }
+.cs-flowbar { background: repeating-linear-gradient(90deg, #818cf8 0 10px, #38bdf8 10px 20px); background-size: 40px 100%; animation: cs-flowbar-k .8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .cs-orbit, .cs-m-drop, .cs-m-sweep, .cs-m-pulse, .cs-m-beat, .cs-m-lid, .cs-m-rise, .cs-m-wobble, .cs-m-spin, .cs-flowbar { animation: none; }
+  .cs-draw :is(path, line, polyline, circle, rect, polygon) { animation: none; stroke-dashoffset: 0; }
+}

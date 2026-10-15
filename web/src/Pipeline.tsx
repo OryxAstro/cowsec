@@ -1,7 +1,10 @@
 // Animated view of a staged background job (CrowdSec upgrade, mailcow update): stages
 // linked by a flowing line, live container states, health checks and the log.
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Circle, Loader2, Terminal, XCircle } from 'lucide-react';
+import {
+  Archive, ArrowUpCircle, Check, CheckCircle2, ChevronDown, Circle, CloudDownload, Download, FlaskConical, HeartPulse, ListChecks,
+  PackageOpen, Power, RefreshCcw, RefreshCw, Search, ShieldCheck, Terminal, X, XCircle, type LucideIcon,
+} from 'lucide-react';
 
 export interface PipelineStep { id: string; title: string; state: 'pending' | 'running' | 'ok' | 'failed'; began?: number; ended?: number }
 export interface ContainerState { service: string; up: boolean; healthy: boolean; starting: boolean; status: string }
@@ -22,16 +25,35 @@ const secs = (s?: PipelineStep, now = Date.now() / 1000) => {
   return d >= 60 ? `${Math.floor(d / 60)}m ${d % 60}s` : `${d}s`;
 };
 
-function Node({ step, index }: { step: PipelineStep; index: number }) {
-  const tone =
-    step.state === 'ok' ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
-      : step.state === 'failed' ? 'border-rose-400 bg-rose-500/15 text-rose-300 cs-shake'
-        : step.state === 'running' ? 'border-sky-400 bg-sky-500/15 text-sky-200 cs-ring'
-          : 'border-slate-700 bg-slate-900 text-slate-500';
+// Each stage gets an icon that says what it does, and a motion that acts it out while it runs.
+const TASKS: Record<string, [LucideIcon, string]> = {
+  check: [Search, 'cs-m-sweep'], download: [Download, 'cs-m-drop'], verify: [ShieldCheck, 'cs-m-pulse'], install: [PackageOpen, 'cs-m-lid'],
+  health: [HeartPulse, 'cs-m-beat'], backup: [Archive, 'cs-m-lid'], prefetch: [CloudDownload, 'cs-m-drop'], update: [RefreshCw, 'cs-m-spin'],
+  checks: [ListChecks, 'cs-m-pulse'], refresh: [RefreshCcw, 'cs-m-spin'], upgrade: [ArrowUpCircle, 'cs-m-rise'], test: [FlaskConical, 'cs-m-wobble'],
+  restart: [Power, 'cs-m-pulse'],
+};
+
+function Node({ step }: { step: PipelineStep; index: number }) {
+  const [Icon, motion] = TASKS[step.id] ?? [Circle, 'cs-m-pulse'];
+  const st = step.state;
   return (
-    <div className={`relative z-10 w-12 h-12 rounded-full border-2 flex items-center justify-center font-bold ${tone}`} style={{ ['--ring' as string]: 'rgba(56,189,248,.55)' }}>
-      {step.state === 'ok' ? <CheckCircle2 key="ok" className="w-6 h-6 cs-pop" /> : step.state === 'failed' ? <XCircle className="w-6 h-6 cs-pop" />
-        : step.state === 'running' ? <Loader2 className="w-6 h-6 animate-spin" /> : <span>{index + 1}</span>}
+    <div className="relative z-10 w-14 h-14 flex items-center justify-center">
+      {st === 'running' && (
+        <>
+          <span className="absolute inset-0 rounded-full cs-orbit" style={{ background: 'conic-gradient(from 0deg, transparent 0 55%, #38bdf8 75%, #818cf8 90%, transparent 100%)' }} />
+          <span className="absolute -inset-2 rounded-full bg-sky-400/20 blur-md cs-breathe" />
+        </>
+      )}
+      <span className="absolute w-12 h-12 rounded-full bg-slate-900" />
+      <span className={`relative w-12 h-12 rounded-full flex items-center justify-center border transition-colors duration-500 ${
+        st === 'ok' ? 'bg-emerald-500/15 border-emerald-400/60 text-emerald-300'
+          : st === 'failed' ? 'bg-rose-500/15 border-rose-400/70 text-rose-300 cs-shake'
+            : st === 'running' ? 'bg-slate-900 border-transparent text-sky-200'
+              : 'bg-slate-900 border-dashed border-slate-700 text-slate-500'}`}>
+        <Icon key={st} className={`w-6 h-6 ${st === 'running' ? motion : st === 'ok' ? 'cs-draw' : ''}`} strokeWidth={1.9} />
+      </span>
+      {st === 'ok' && <span className="absolute -right-0.5 -bottom-0.5 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center ring-2 ring-slate-900 cs-pop"><Check className="w-3 h-3" strokeWidth={3} /></span>}
+      {st === 'failed' && <span className="absolute -right-0.5 -bottom-0.5 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center ring-2 ring-slate-900 cs-pop"><X className="w-3 h-3" strokeWidth={3} /></span>}
     </div>
   );
 }
@@ -115,20 +137,19 @@ export default function Pipeline({ job, title }: { job: PipelineJob; title: stri
       {/* stages */}
       {steps.length > 0 && (
         <div className="relative">
-          <svg className="absolute left-0 right-0 top-6 w-full h-1 overflow-visible" preserveAspectRatio="none" aria-hidden>
-            <line x1="4%" y1="0" x2="96%" y2="0" stroke="#1e293b" strokeWidth="3" />
-            <line x1="4%" y1="0" x2={`${4 + (92 * Math.max(0, done - (steps.length > 1 ? 0 : 0))) / Math.max(1, steps.length - 1)}%`} y2="0"
-              stroke="url(#cs-pipe)" strokeWidth="3" style={{ transition: 'all .8s ease' }} />
-            {job.state === 'running' && <line x1="4%" y1="0" x2="96%" y2="0" stroke="#38bdf8" strokeOpacity=".35" strokeWidth="3" className="cs-flow" />}
-            <defs>
-              <linearGradient id="cs-pipe" x1="0" x2="1"><stop offset="0" stopColor="#818cf8" /><stop offset="1" stopColor="#34d399" /></linearGradient>
-            </defs>
-          </svg>
+          <div className="absolute left-0 right-0 top-7 grid gap-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }} aria-hidden>
+            {steps.map((st, i) => i < steps.length - 1 && (
+              <div key={st.id} className="relative h-[3px] rounded-full bg-slate-800 overflow-hidden" style={{ gridColumnStart: i + 1, width: 'calc(100% + 0.5rem)', transform: 'translateX(50%)' }}>
+                <div className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ${st.state === 'ok' && steps[i + 1].state === 'running' ? 'cs-flowbar' : 'bg-gradient-to-r from-indigo-400 to-emerald-400'}`}
+                  style={{ width: st.state === 'ok' ? '100%' : '0%' }} />
+              </div>
+            ))}
+          </div>
           <div className="relative grid gap-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
             {steps.map((s, i) => (
               <div key={s.id} className="flex flex-col items-center text-center gap-2">
                 <Node step={s} index={i} />
-                <p className={`text-[11.5px] leading-tight ${s.state === 'pending' ? 'text-slate-500' : 'text-slate-200 font-semibold'}`}>{s.title}</p>
+                <p className={`text-[11.5px] leading-tight transition-colors ${s.state === 'pending' ? 'text-slate-500' : s.state === 'running' ? 'text-sky-200 font-semibold' : 'text-slate-200 font-semibold'}`}>{s.title}</p>
                 <p className="text-[10px] font-mono text-slate-500 h-3">{secs(s)}</p>
               </div>
             ))}
