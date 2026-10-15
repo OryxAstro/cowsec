@@ -6,6 +6,7 @@ import {
   AlertTriangle, AtSign, Ban, CheckCircle2, CircleDashed, Copy, Download, Eye, EyeOff, FileSignature, Gauge, Globe, KeyRound, Mail, RefreshCw, Server, Settings2, Shield, Signature, Sparkles, Ticket, X, XCircle,
 } from 'lucide-react';
 import { AliasDomainsTab, AppPasswordsTab, DisposableTab, DkimCard, FooterTab, SenderListsTab, SpamScoreTab, Tabs } from './MailcowExtras';
+import { SecurityTab } from './MailcowSecurity';
 import Select from './Select';
 import { btn, input, send, useApi } from './MailcowPanels';
 
@@ -184,14 +185,15 @@ export function MailboxModal({ domains, username, onClose, onSaved, run }: { dom
     return run(() => send('POST', '/api/mailcow/mailboxes', { ...all, local_part: f.local_part, domain: f.domain }), () => { onSaved(); onClose(); });
   };
   const relayList = Array.isArray(relays.data) ? relays.data : [];
-  const [tab, setTab] = useState<'settings' | 'spam' | 'apps' | 'disposable' | 'senders'>('settings');
+  const [tab, setTab] = useState<'settings' | 'security' | 'spam' | 'apps' | 'disposable' | 'senders'>('settings');
   const valid = editing ? (!f.password || f.password.length >= 10) : !!f.local_part && !!f.domain && f.password.length >= 10;
   return (
-    <Modal title={editing ? `Edit ${username}` : 'New stall (mailbox)'} sub={editing ? 'Settings, spam filter, app passwords and disposable addresses' : 'Every option mailcow offers when you add a mailbox'} icon={<Mail className="w-5 h-5" />} onClose={onClose}
+    <Modal wide={editing} title={editing ? `Edit ${username}` : 'New stall (mailbox)'} sub={editing ? 'Settings, security, spam filter, app passwords and disposable addresses' : 'Every option mailcow offers when you add a mailbox'} icon={<Mail className="w-5 h-5" />} onClose={onClose}
       footer={tab === 'settings' ? <><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
         <button disabled={!valid} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create mailbox'}</button></> : undefined}>
-      {editing && <Tabs value={tab} onChange={setTab} tabs={[['settings', 'Settings', <Settings2 key="s" className="w-3.5 h-3.5" />], ['spam', 'Spam filter', <Gauge key="g" className="w-3.5 h-3.5" />],
+      {editing && <Tabs value={tab} onChange={setTab} tabs={[['settings', 'Settings', <Settings2 key="s" className="w-3.5 h-3.5" />], ['security', 'Security', <Shield key="sec" className="w-3.5 h-3.5" />], ['spam', 'Spam filter', <Gauge key="g" className="w-3.5 h-3.5" />],
         ['apps', 'App passwords', <KeyRound key="k" className="w-3.5 h-3.5" />], ['disposable', 'Disposable addresses', <Ticket key="t" className="w-3.5 h-3.5" />], ['senders', 'Allow / block senders', <Ban key="b" className="w-3.5 h-3.5" />]]} />}
+      {editing && tab === 'security' && <SecurityTab user={username!} run={run} />}
       {editing && tab === 'spam' && <SpamScoreTab user={username!} run={run} />}
       {editing && tab === 'apps' && <AppPasswordsTab user={username!} run={run} />}
       {editing && tab === 'disposable' && <DisposableTab user={username!} domains={domains.map((d) => d.domain_name)} run={run} />}

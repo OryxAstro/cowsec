@@ -18,6 +18,14 @@ type Options struct {
 	// Gate runs an allowlisted verb through cowsec-hostctl (domain-admin ACLs live in
 	// mailcow's database; netfilter coordination runs as a timer on the host).
 	Gate func(verb string, args ...string) ([]byte, error)
+	// Geo looks up an address's country and network.
+	Geo func(ip string) *GeoInfo
+	// BanStatus, Ban and Unban reach CrowdSec for the mailbox security views.
+	BanStatus func(ip string) *Ban
+	Ban       func(ip, duration, reason string) error
+	Unban     func(ip string) error
+	// StateDir holds CowSec's own records (mailbox lockdowns, so they can be undone).
+	StateDir string
 }
 
 var (

@@ -13,7 +13,7 @@ Built on mailcow's API ([review of the API](mailcow.md)), with CrowdSec tying it
 - **Domains:** footer/disclaimer editor with live preview, alias domains.
 - **Quarantine:** release and train as not spam, message preview with rspamd symbols, "always allow / block this sender" from an item.
 
-### 3b. Security with CrowdSec
+### 3b. Security with CrowdSec (done)
 
 - **Mailbox security view:** recent sign-ins with country flags, failed sign-ins CrowdSec saw for the address, "new country" warnings.
 - **Lock down a mailbox:** one playbook that disables sign-in, forces a password reset, revokes app passwords, clears ActiveSync devices, throttles sending and bans the source IPs. Comes with an undo checklist.

@@ -135,6 +135,32 @@ From there you can release it, release it and teach rspamd it isn't spam, delete
 <p align="center"><img src="img/mail/quarantine-preview.webp" alt="A quarantined message, shown safely" width="900"></p>
 <p align="center"><img src="img/mail/quarantine-links.webp" alt="Disguised links and risky attachments" width="900"></p>
 
+### Mailbox security
+
+The shield button on a mailbox, or the **Security** tab when editing one, shows:
+- **sign-ins** from the last 30 days, with country flag, network, service, and which app password was used; sign-ins from a country the mailbox rarely uses are highlighted;
+- **failed attempts** against the address, from mailcow's Postfix and Dovecot logs, grouped by address, with whether CrowdSec already bans each one and a button to ban it for 7 days.
+
+**Lock down this mailbox** is for when an account may be in someone else's hands. It runs a checklist, each step optional:
+1. Disable sign-in. Mail still arrives (mailcow's "login disallowed" state).
+2. Require a new password at the next sign-in.
+3. Pause every app password (paused, not deleted).
+4. Sign out phones and tablets (clears ActiveSync devices).
+5. Throttle sending to one message an hour.
+6. Ban the suspicious addresses in CrowdSec for 24 hours, 7 days or 30 days.
+
+CowSec remembers what it changed, so **Undo** puts each part back: sign-in, app passwords, the previous sending limit, and optionally the bans.
+
+### Lookout (Mail security)
+
+One page for keeping watch:
+- **Outbound mail by sender:** messages each signed-in user sent in the window of Postfix logs, with a rate per hour and how many addresses they sent from. A sudden jump, or one account sending from many addresses, is flagged as unusual.
+- **Locked-down mailboxes**, with a shortcut to review or undo each.
+- **The queue by sender**, and messages held back by a sending limit.
+- **Admins and two-factor sign-in:** every mailcow admin and domain admin, and whether they use 2FA.
+- **Password policy:** minimum length and required character types for mailbox and admin passwords.
+- **Forwarding hosts:** servers allowed to pass mail on to this one, such as a backup MX.
+
 ### Farm Log
 
 <p align="center"><img src="img/mail/logs.webp" alt="mailcow logs" width="900"></p>

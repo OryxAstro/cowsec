@@ -4,11 +4,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, AtSign, Box, CheckCircle2, Copy, Eye, FileText, Globe, HardDrive, Inbox, KeyRound, Loader2,
-  Pause, Pencil, Play, Plus, RefreshCw, Search, Send, Server, ShieldAlert, Trash2, X,
+  Pause, Pencil, Play, Plus, RefreshCw, Search, Send, Server, Shield, ShieldAlert, Trash2, X,
 } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
 import { AliasModal, DnsModal, DomainModal, MailboxModal } from './MailcowForms';
 import { QuarantinePreview } from './MailcowExtras';
+import { SecurityModal } from './MailcowSecurity';
 import Select from './Select';
 
 // ---------------------------------------------------------------- shared
@@ -309,6 +310,7 @@ export function MailboxesPanel() {
   const [q, setQ] = useState('');
   const [modal, setModal] = useState<{ user?: string } | null>(null);
   const [pwFor, setPwFor] = useState('');
+  const [secFor, setSecFor] = useState('');
   const [newPw, setNewPw] = useState('');
   const list = useMemo(() => (data || []).filter((m) => !q || m.username.includes(q.toLowerCase()) || (m.name || '').toLowerCase().includes(q.toLowerCase())), [data, q]);
   if (notConfigured || domains.notConfigured) return <NotConfigured />;
@@ -317,6 +319,7 @@ export function MailboxesPanel() {
     <div className="space-y-6">
       {toast}
       {modal && <MailboxModal domains={domains.data || []} username={modal.user} onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      {secFor && <SecurityModal user={secFor} onClose={() => { setSecFor(''); reload(); }} />}
       <Header title="Stalls (Mailboxes)" sub="Mail accounts, quotas and last logins" action={<button onClick={() => setModal({})} disabled={!domains.data?.length} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add mailbox</button>} />
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
@@ -350,8 +353,9 @@ export function MailboxesPanel() {
                   <td><div className="flex items-center gap-2"><Bar pct={Number(m.percent_in_use)} /><span className="text-xs text-slate-400 font-mono">{mb(m.quota_used)} / {mb(m.quota)}</span></div></td>
                   <td className="text-xs text-slate-300 font-mono">{m.messages ?? 0}</td>
                   <td className="text-xs text-slate-400">{lastSeen(m.last_imap_login)} / {lastSeen(m.last_smtp_login)}</td>
-                  <td><Pill ok={on(m.active)} /></td>
+                  <td>{String(m.active) === '2' ? <span className="text-[11px] font-semibold px-2 py-0.5 rounded text-amber-200 bg-amber-950/60">Sign-in off</span> : <Pill ok={on(m.active)} />}</td>
                   <td className="text-right whitespace-nowrap">
+                    <button onClick={() => setSecFor(m.username)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Security"><Shield className="w-3.5 h-3.5" /></button>
                     <button onClick={() => setModal({ user: m.username })} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => { setPwFor(pwFor === m.username ? '' : m.username); setNewPw(genPw()); }} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Set a new password"><KeyRound className="w-3.5 h-3.5" /></button>
                     <button onClick={() => run(() => send('PATCH', `/api/mailcow/mailboxes/${encodeURIComponent(m.username)}`, { active: !on(m.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title={on(m.active) ? 'Disable' : 'Enable'}>

@@ -48,13 +48,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("auth: %v", err) // fail closed
 	}
+	geoDB := geo.New(env("COWSEC_GEOIP_DIR", "/var/lib/crowdsec/data"))
 	host := crowdsec.New(
 		env("COWSEC_TARGET_ID", "local"),
 		env("COWSEC_TARGET_NAME", "Mail server"),
 		env("COWSEC_TARGET_DESCRIPTION", "mailcow · CrowdSec"),
 		env("COWSEC_HELPER", "/usr/lib/cowsec/cowsec-hostctl"),
 		stateDir,
-		geo.New(env("COWSEC_GEOIP_DIR", "/var/lib/crowdsec/data")),
+		geoDB,
 	)
 
 	r := chi.NewRouter()
@@ -73,7 +74,39 @@ func main() {
 				}
 			}
 		}
-		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mc, mailcow.Options{Gate: host.Gate}) })
+		opts := mailcow.Options{Gate: host.Gate, StateDir: stateDir,
+			Geo: func(ip string) *mailcow.GeoInfo {
+				i := geoDB.One(ip)
+				if i.Status != "success" {
+					return nil
+				}
+				return &mailcow.GeoInfo{CountryCode: i.CountryCode, Country: i.Country, Org: i.Org, LAN: i.IsLAN}
+			},
+			BanStatus: func(ip string) *mailcow.Ban {
+				ds, _, err := host.GetDecisions("", ip, 5, 0)
+				if err != nil {
+					return nil
+				}
+				for _, d := range ds {
+					if d.Type == "ban" && !d.Simulated {
+						return &mailcow.Ban{Banned: true, Duration: d.Duration, Origin: d.Origin}
+					}
+				}
+				return &mailcow.Ban{}
+			},
+			Ban: func(ip, duration, reason string) error {
+				_, err := host.AddDecision(ip, duration, reason, "ban")
+				return err
+			},
+			Unban: func(ip string) error {
+				_, err := host.DeleteDecision(ip, "")
+				if host.OnUnban != nil {
+					host.OnUnban(ip)
+				}
+				return err
+			},
+		}
+		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mc, opts) })
 		r.Get("/about", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, `{"version":%q}`, version)
