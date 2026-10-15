@@ -18,9 +18,7 @@ sudo cscli metrics                  # acquisition, parsers, bouncers
 
 <p align="center"><img src="img/console/decisions.webp" alt="Banned from the Herd: search for your IP and click Unblock" width="900"></p>
 
-You can also lift a ban in the console: **Banned from the Herd** → search for the IP → **Unblock**. Or from the server:
-
-Lift the ban from the server:
+In the console: **Banned from the Herd** → search for the IP → **Unblock**. Or from the server:
 
 ```bash
 sudo cscli decisions list --ip <your-ip>
