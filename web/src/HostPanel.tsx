@@ -57,7 +57,7 @@ const bytes = (n: number | undefined) => {
 };
 const svcLabel: Record<string, string> = {
   crowdsec: 'Herd dog (CrowdSec engine + LAPI)',
-  'crowdsec-firewall-bouncer': 'Gate bouncer (iptables/ipset)',
+  'crowdsec-firewall-bouncer': 'Gate bouncer (firewall)',
   openresty: 'Electric fence (OpenResty + AppSec)',
   chrony: 'Milking clock (chrony · KVM PTP)',
   cloudflared: 'Secret cattle path (Cloudflare Tunnel)',
@@ -242,7 +242,7 @@ export default function HostPanel() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Tile label="Herd status" value={allUp ? 'Herd safe' : 'Udderly degraded'} sub={`${servicesUp}/${st.services.length} barn services · electric fence ${st.appsec.listening ? 'live' : 'off!'}`}
           tone={allUp ? 'emerald' : 'rose'} icon={allUp ? <ShieldCheck className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />} />
-        <Tile label="Wolves at the gate" value={fmt(blocked)} sub={`blocked IPs · ${Object.keys(st.firewall.ipsets).length} ipsets · ${st.firewall.iptablesRules} iptables rules`} tone="rose" icon={<Flame className="w-4 h-4" />} />
+        <Tile label="Wolves at the gate" value={fmt(blocked)} sub={`blocked IPs · ${Object.keys(st.firewall.ipsets).length} sets · ${st.firewall.iptablesRules} firewall rules`} tone="rose" icon={<Flame className="w-4 h-4" />} />
         <Tile label="Zapped by the fence" value={fmt(engine.blocked)} sub={`of ${fmt(engine.processed)} web requests checked by AppSec`} tone="indigo" icon={<Activity className="w-4 h-4" />} />
         <Tile label="Brand (TLS cert)" value={cert?.daysLeft != null ? `${cert.daysLeft}d` : 'n/a'} sub={cert ? `${cert.issuer} · ${cert.names.length} names` : 'not found'} tone={certTone} icon={<Lock className="w-4 h-4" />} />
       </div>

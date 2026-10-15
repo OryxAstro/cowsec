@@ -6,7 +6,7 @@
 
 ```bash
 sha256sum -c SHA256SUMS
-sudo apt install ./cowsec_<new-version>_amd64.deb
+sudo apt update && sudo apt install ./cowsec_<new-version>_amd64.deb
 ```
 
 Settings, accounts, the ban policy and certificates are kept.

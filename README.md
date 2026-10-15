@@ -118,7 +118,7 @@ Everything sits alongside mailcow. CowSec only uses mailcow's supported settings
 
 ```bash
 sha256sum -c SHA256SUMS
-sudo apt install ./cowsec_*_amd64.deb
+sudo apt update && sudo apt install ./cowsec_*_amd64.deb
 sudo cowsec-setup                      # prints https://<server>:9443 and a one-time token
 ```
 

@@ -30,7 +30,7 @@ Download `cowsec_<version>_amd64.deb` and `SHA256SUMS` from the latest release, 
 
 ```bash
 sha256sum -c SHA256SUMS
-sudo apt install ./cowsec_<version>_amd64.deb
+sudo apt update && sudo apt install ./cowsec_<version>_amd64.deb
 ```
 
 Installing the package changes nothing else on the server. It starts the `cowsec` service in **setup mode** and prints the wizard's address:

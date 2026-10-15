@@ -23,7 +23,7 @@ Back up before you start: a mailcow backup (`helper-scripts/backup_and_restore.s
 
 ```bash
 sha256sum -c SHA256SUMS
-sudo apt install ./cowsec_<version>_amd64.deb
+sudo apt update && sudo apt install ./cowsec_<version>_amd64.deb
 ```
 
 The package installs:
