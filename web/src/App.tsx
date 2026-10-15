@@ -2,24 +2,25 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Download, LogOut, Network, Package, Palette, Scale, Server,
   Settings as SettingsIcon, Shield, ShieldAlert, Sparkles, Home, Globe, Inbox, AtSign, KeyRound, ShieldQuestion, Send, ScrollText,
-  Dog, Gauge, Lock, Route, Users,
+  BookOpen, ChevronRight, Dog, Gauge, Info, Lock, Route, Users,
 } from 'lucide-react';
 import CowSecLogo from './CowSecLogo';
 import CrowdSecConsole, { type CsSubTabType } from './CrowdSecConsole';
 import ErrorBoundary from './ErrorBoundary';
 import { AliasesPanel, DkimPanel, DomainsPanel, FarmOverview, LogsPanel, MailboxesPanel, QuarantinePanel, QueuePanel } from './MailcowPanels';
 import { CattleRoutesPanel, FarmhandsPanel, GrazingLimitsPanel, GuardDogPanel, LockedLanesPanel } from './FarmAdminPanels';
+import { AboutPanel, HelpCenter } from './HelpCenter';
 import { THEME_PALETTES, type ThemePalette } from './themes';
 import type { Identity } from './session';
 
-type MailTab = 'farm' | 'domains' | 'mailboxes' | 'aliases' | 'dkim' | 'quarantine' | 'queue' | 'maillogs' | 'farmhands' | 'ratelimits' | 'tls' | 'routes' | 'netfilter';
+type MailTab = 'farm' | 'domains' | 'mailboxes' | 'aliases' | 'dkim' | 'quarantine' | 'queue' | 'maillogs' | 'farmhands' | 'ratelimits' | 'tls' | 'routes' | 'netfilter' | 'help' | 'about';
 type Tab = CsSubTabType | MailTab;
 
 const MAIL_PAGES: Record<MailTab, () => ReactNode> = {
   farm: () => <FarmOverview />, domains: () => <DomainsPanel />, mailboxes: () => <MailboxesPanel />, aliases: () => <AliasesPanel />,
   dkim: () => <DkimPanel />, quarantine: () => <QuarantinePanel />, queue: () => <QueuePanel />, maillogs: () => <LogsPanel />,
   farmhands: () => <FarmhandsPanel />, ratelimits: () => <GrazingLimitsPanel />, tls: () => <LockedLanesPanel />, routes: () => <CattleRoutesPanel />,
-  netfilter: () => <GuardDogPanel />,
+  netfilter: () => <GuardDogPanel />, help: () => <HelpCenter />, about: () => <AboutPanel />,
 };
 
 const NAV: [string, string, [Tab, string, ReactNode][]][] = [
@@ -40,13 +41,15 @@ const NAV: [string, string, [Tab, string, ReactNode][]][] = [
     ['mailboxes', 'Stalls (Mailboxes)', <Inbox key="i" className="w-4 h-4 shrink-0 text-indigo-300" />],
     ['aliases', 'Ear Tags (Aliases)', <AtSign key="i" className="w-4 h-4 shrink-0 text-violet-300" />],
     ['dkim', 'Brand Irons (DKIM)', <KeyRound key="i" className="w-4 h-4 shrink-0 text-amber-300" />],
+    ['quarantine', 'Quarantine Pen', <ShieldQuestion key="i" className="w-4 h-4 shrink-0 text-amber-400" />],
+    ['queue', 'Milk Queue (Mail queue)', <Send key="i" className="w-4 h-4 shrink-0 text-cyan-300" />],
+    ['maillogs', 'Farm Log (Logs)', <ScrollText key="i" className="w-4 h-4 shrink-0 text-slate-300" />],
+  ]],
+  ['Farm Office', 'Mail policy', [
     ['farmhands', 'Farmhands (Domain admins)', <Users key="i" className="w-4 h-4 shrink-0 text-indigo-300" />],
     ['ratelimits', 'Grazing Limits (Rate limits)', <Gauge key="i" className="w-4 h-4 shrink-0 text-amber-300" />],
     ['tls', 'Locked Lanes (TLS policy)', <Lock key="i" className="w-4 h-4 shrink-0 text-emerald-300" />],
     ['routes', 'Cattle Routes (Relays)', <Route key="i" className="w-4 h-4 shrink-0 text-sky-300" />],
-    ['quarantine', 'Quarantine Pen', <ShieldQuestion key="i" className="w-4 h-4 shrink-0 text-amber-400" />],
-    ['queue', 'Milk Queue (Mail queue)', <Send key="i" className="w-4 h-4 shrink-0 text-cyan-300" />],
-    ['maillogs', 'Farm Log (Logs)', <ScrollText key="i" className="w-4 h-4 shrink-0 text-slate-300" />],
   ]],
   ['Herd Watch', 'Detection', [
     ['alerts', 'Moo Alerts', <AlertTriangle key="i" className="w-4 h-4 shrink-0 text-orange-400" />],
@@ -54,7 +57,19 @@ const NAV: [string, string, [Tab, string, ReactNode][]][] = [
     ['topology', 'Bouncers & Herd Dogs', <Network key="i" className="w-4 h-4 shrink-0 text-emerald-400" />],
   ]],
 ];
-const VALID = NAV.flatMap(([, , items]) => items.map(([id]) => id));
+const FOOTER_NAV: [Tab, string, ReactNode][] = [
+  ['help', "Farmer's Almanac (Help)", <BookOpen key="i" className="w-4 h-4 shrink-0 text-lime-300" />],
+  ['about', 'About CowSec', <Info key="i" className="w-4 h-4 shrink-0 text-sky-300" />],
+];
+const VALID = [...NAV.flatMap(([, , items]) => items.map(([id]) => id)), ...FOOTER_NAV.map(([id]) => id)];
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem('cowsec_nav_collapsed') || '') || {};
+  } catch {
+    return { 'Farm Office': true, 'Herd Watch': true };
+  }
+}
 
 function initialTab(): Tab {
   const h = window.location.hash.replace(/^#\/?/, '').split('/')[0] as Tab;
@@ -77,7 +92,7 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
     } catch {
       /* storage unavailable */
     }
-    return 'indigo';
+    return 'midnight';
   });
   const [themeOpen, setThemeOpen] = useState(false);
   const current = THEME_PALETTES.find((p) => p.id === theme) ?? THEME_PALETTES[0];
@@ -88,6 +103,9 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     document.body.setAttribute('data-theme', theme);
+    const mode = THEME_PALETTES.find((p) => p.id === theme)?.mode ?? 'dark';
+    document.documentElement.setAttribute('data-mode', mode);
+    document.body.setAttribute('data-mode', mode);
     try {
       localStorage.setItem('cowsec_theme', theme);
     } catch {
@@ -100,6 +118,29 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(loadCollapsed);
+  const toggleGroup = (g: string) =>
+    setCollapsed((c) => {
+      const n = { ...c, [g]: !c[g] };
+      try {
+        localStorage.setItem('cowsec_nav_collapsed', JSON.stringify(n));
+      } catch {
+        /* storage unavailable */
+      }
+      return n;
+    });
+  const navButton = (id: Tab, label: string, icon: ReactNode) => (
+    <button
+      key={id}
+      onClick={() => navigate(id)}
+      className={`w-full flex items-center space-x-3 px-3.5 py-2 rounded-xl text-sm font-semibold transition-all cursor-pointer border border-transparent ${
+        tab === id ? 'cowsec-nav-active text-white' : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]'
+      }`}
+    >
+      {icon}
+      <span className="whitespace-nowrap">{label}</span>
+    </button>
+  );
   const navigate = (t: Tab) => {
     setTab(t);
     if (window.location.hash !== `#/${t}`) window.history.pushState(null, '', `#/${t}`);
@@ -145,12 +186,16 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
               <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${themeOpen ? 'rotate-180' : ''}`} />
             </button>
             {themeOpen && (
-              <div className="absolute right-0 mt-2 w-72 rounded-2xl p-2.5 shadow-2xl z-50 border backdrop-blur-2xl" style={{ backgroundColor: 'rgba(10, 16, 32, 0.94)', borderColor: 'var(--border-app-hover)' }}>
+              <div className="absolute right-0 mt-2 w-72 rounded-2xl p-2.5 shadow-2xl z-50 border backdrop-blur-2xl" style={{ backgroundColor: 'var(--bg-card-hover)', borderColor: 'var(--border-app-hover)' }}>
                 <div className="px-2.5 py-1.5 border-b mb-1.5 flex items-center space-x-1.5" style={{ borderColor: 'var(--border-app)' }}>
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-[11px] font-bold text-slate-200 tracking-wider uppercase">Palettes</span>
                 </div>
-                {THEME_PALETTES.map((p) => (
+                {THEME_PALETTES.map((p, i) => (
+                  <div key={p.id}>
+                  {(i === 0 || (THEME_PALETTES[i - 1].mode ?? 'dark') !== (p.mode ?? 'dark')) && (
+                    <p className="px-2.5 pt-2 pb-1 text-[10px] font-mono uppercase tracking-widest text-slate-500">{p.mode === 'light' ? 'Light' : 'Dark'}</p>
+                  )}
                   <button
                     key={p.id}
                     onClick={() => {
@@ -173,6 +218,7 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
                     </div>
                     {theme === p.id && <Check className="w-3.5 h-3.5 text-white" />}
                   </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -197,26 +243,35 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
       </header>
 
       <div className="flex-1 flex flex-col md:flex-row">
-        <aside className="w-full md:w-72 shrink-0 border-b md:border-b-0 md:border-r p-4 space-y-5 backdrop-blur-xl" style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-app)' }}>
-          {NAV.map(([section, meaning, items]) => (
-            <div key={section} className="space-y-1">
-              <p className="px-3 text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500 mb-1.5">
-                {section} <span className="text-slate-600">· {meaning}</span>
-              </p>
-              {items.map(([id, label, icon]) => (
+        <aside className="w-full md:w-72 shrink-0 border-b md:border-b-0 md:border-r p-4 flex flex-col gap-3 backdrop-blur-xl md:sticky md:top-0 md:h-screen md:overflow-y-auto" style={{ backgroundColor: 'var(--bg-sidebar)', borderColor: 'var(--border-app)' }}>
+          <nav className="space-y-3 flex-1" aria-label="Sections">
+          {NAV.map(([section, meaning, items]) => {
+            const holdsTab = items.some(([id]) => id === tab);
+            const shut = !!collapsed[section] && !holdsTab;
+            return (
+              <div key={section}>
                 <button
-                  key={id}
-                  onClick={() => navigate(id)}
-                  className={`w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer border border-transparent ${
-                    tab === id ? 'cowsec-nav-active text-white' : 'text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]'
-                  }`}
+                  onClick={() => toggleGroup(section)}
+                  aria-expanded={!shut}
+                  className="w-full flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-mono font-bold uppercase tracking-widest text-slate-500 hover:text-slate-300 cursor-pointer"
                 >
-                  {icon}
-                  <span className="whitespace-nowrap">{label}</span>
+                  <ChevronRight className={`w-3 h-3 transition-transform duration-300 ${shut ? '' : 'rotate-90'}`} />
+                  <span>{section}</span> <span className="text-slate-600 normal-case tracking-normal font-normal">· {meaning}</span>
+                  {shut && <span className="ml-auto text-[10px] text-slate-600">{items.length}</span>}
                 </button>
-              ))}
-            </div>
-          ))}
+                <div className={`grid transition-[grid-template-rows] duration-300 ${shut ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}>
+                  <div className="overflow-hidden space-y-0.5 pt-1">
+                    {items.map(([id, label, icon]) => navButton(id, label, icon))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          </nav>
+          <div className="pt-3 space-y-0.5 border-t" style={{ borderColor: 'var(--border-app)' }}>
+            {FOOTER_NAV.map(([id, label, icon]) => navButton(id, label, icon))}
+            <p className="px-3.5 pt-2 text-[10px] font-mono text-slate-600">© {new Date().getFullYear()} OryxAstro</p>
+          </div>
         </aside>
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
           <ErrorBoundary resetKey={tab}>

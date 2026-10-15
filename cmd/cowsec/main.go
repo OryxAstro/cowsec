@@ -74,6 +74,10 @@ func main() {
 			}
 		}
 		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mc, mailcow.Options{Gate: host.Gate}) })
+		r.Get("/about", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"version":%q}`, version)
+		})
 	})
 
 	uiDir := env("COWSEC_UI_DIR", "/usr/share/cowsec/ui")

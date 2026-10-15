@@ -3,6 +3,7 @@ import {
   AlertTriangle, ArrowLeft, Check, Copy, Eye, EyeOff, KeyRound, Loader2, Lock, ShieldCheck, Smartphone, User,
 } from 'lucide-react';
 import CowSecLogo from './CowSecLogo';
+import { THEME_PALETTES } from './themes';
 import { postJSON, type AuthConfig, type Identity } from './session';
 
 type Stage =
@@ -117,6 +118,9 @@ export default function Login({ onSignedIn, notice }: { onSignedIn: (id: Identit
       if (theme) {
         document.documentElement.setAttribute('data-theme', theme);
         document.body.setAttribute('data-theme', theme);
+        const mode = THEME_PALETTES.find((p) => p.id === theme)?.mode ?? 'dark';
+        document.documentElement.setAttribute('data-mode', mode);
+        document.body.setAttribute('data-mode', mode);
       }
     } catch {
       // ignore

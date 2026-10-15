@@ -1,0 +1,2 @@
+# RFC 6238 test vector in the TOTP tests (public, not a secret)
+233bfd48651520d6964640aefee15ee3793c27b5:internal/auth/totp_test.go:generic-api-key:10

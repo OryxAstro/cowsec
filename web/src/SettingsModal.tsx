@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Activity, KeyRound, Loader2, LogOut, ShieldCheck, Smartphone, User, X,
+  Activity, KeyRound, Loader2, LogOut, ShieldCheck, Smartphone, Sparkles, User, X,
 } from 'lucide-react';
+import CowSecLogo, { LOOKS, mascotPreference, seasonalLook, setMascotPreference, type Look } from './CowSecLogo';
 import { postJSON, type MeResponse } from './session';
 
-type Tab = 'account' | 'security' | 'activity';
+type Tab = 'account' | 'security' | 'activity' | 'mascot';
 
 interface AuditEntry {
   time: string;
@@ -81,6 +82,7 @@ export default function SettingsModal({ onClose, onLogout }: { onClose: () => vo
     { key: 'account', label: 'Account', icon: User },
     { key: 'security', label: 'Security', icon: ShieldCheck },
     { key: 'activity', label: 'Activity', icon: Activity },
+    { key: 'mascot', label: 'Mascot', icon: Sparkles },
   ];
 
   return (
@@ -245,8 +247,38 @@ export default function SettingsModal({ onClose, onLogout }: { onClose: () => vo
                 </table>
               ))}
 
+            {tab === 'mascot' && <MascotPicker />}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MascotPicker() {
+  const [pref, setPref] = useState<Look | 'auto'>(mascotPreference);
+  const pick = (v: Look | 'auto') => {
+    setPref(v);
+    setMascotPreference(v);
+  };
+  const today = seasonalLook();
+  return (
+    <div className="space-y-4">
+      <p className="text-slate-400">Choose how the cow on your console dresses. "Follow the calendar" swaps her hat and collar charm for the season; the choice is saved in this browser.</p>
+      <button onClick={() => pick('auto')}
+        className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left cursor-pointer ${pref === 'auto' ? 'border-sky-400/50 bg-sky-500/10' : 'border-slate-800 hover:border-slate-700'}`}>
+        <CowSecLogo look={today} className="w-12 h-12" />
+        <span><span className="block text-sm font-semibold text-white">Follow the calendar</span><span className="block text-slate-400">Today: {LOOKS.find((l) => l.id === today)?.name}</span></span>
+      </button>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 cs-stagger">
+        {LOOKS.map((l) => (
+          <button key={l.id} onClick={() => pick(l.id)}
+            className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 cursor-pointer transition-colors ${pref === l.id ? 'border-sky-400/50 bg-sky-500/10' : 'border-slate-800 hover:border-slate-700'}`}>
+            <CowSecLogo look={l.id} className="w-14 h-14" />
+            <span className="text-xs font-semibold text-white">{l.name}</span>
+            <span className="text-[10px] text-slate-500 text-center">{l.when}</span>
+          </button>
+        ))}
       </div>
     </div>
   );

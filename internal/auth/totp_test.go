@@ -7,7 +7,7 @@ import (
 )
 
 // RFC 6238 appendix B, SHA1 secret "12345678901234567890" (base32 below); 6-digit tail of the 8-digit vectors.
-const rfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+const rfcSecret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" // gitleaks:allow (RFC 6238 test vector)
 
 func TestTOTPRFC6238Vectors(t *testing.T) {
 	for _, tc := range []struct {

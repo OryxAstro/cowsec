@@ -3,7 +3,7 @@
 # and before the first tag -> 0.3.0~dev+<commit count>.<hash> (sorts below 0.3.0).
 BASE_VERSION := 0.3.0
 GIT_DESC := $(shell git describe --tags --long --match 'v[0-9]*' 2>/dev/null)
-GIT_DIRTY := $(shell git diff --quiet HEAD 2>/dev/null || echo .dirty)
+GIT_DIRTY := $(shell git diff --quiet HEAD 2>/dev/null || date -u +.dirty%Y%m%d%H%M)
 ifneq ($(GIT_DESC),)
 GIT_VERSION := $(shell echo $(GIT_DESC) | sed -E 's/^v//; s/-0-g[0-9a-f]+$$//; s/-([0-9]+)-(g[0-9a-f]+)$$/+\1.\2/')$(GIT_DIRTY)
 else

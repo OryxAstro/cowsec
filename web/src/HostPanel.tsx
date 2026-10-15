@@ -153,8 +153,21 @@ const ACTIONS: { id: string; label: string; hint: string }[] = [
   { id: 'reload-openresty', label: 'Re-wire the fence', hint: 'Reload OpenResty (config is tested first)' },
 ];
 
+import PastureMap, { type FlowSample } from './PastureMap';
+
+function sample(st: HostStatus): FlowSample {
+  const eng = Object.values(st.appsec.metrics['appsec-engine'] ?? {})[0] ?? {};
+  const mailLines = Object.entries(st.acquisition.acquisition ?? {})
+    .filter(([src]) => /postfix|dovecot/i.test(src))
+    .reduce((a, [, v]) => a + (v.reads ?? 0), 0);
+  let dropped = 0;
+  for (const origins of Object.values(st.bouncerMetrics.bouncers ?? {})) for (const v of Object.values(origins)) dropped += v.dropped?.packet ?? 0;
+  return { t: Date.now(), webChecked: eng.processed ?? 0, webBlocked: eng.blocked ?? 0, mailLines, dropped };
+}
+
 export default function HostPanel() {
   const [st, setSt] = useState<HostStatus | null>(null);
+  const [flow, setFlow] = useState<{ prev: FlowSample | null; cur: FlowSample } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirm, setConfirm] = useState('');
@@ -166,7 +179,9 @@ export default function HostPanel() {
     try {
       const res = await fetch('/api/crowdsec/host/status', { cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text());
-      setSt(await res.json());
+      const next: HostStatus = await res.json();
+      setSt(next);
+      setFlow((f) => ({ prev: f?.cur ?? null, cur: sample(next) }));
       setError('');
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -246,6 +261,15 @@ export default function HostPanel() {
         <Tile label="Zapped by the fence" value={fmt(engine.blocked)} sub={`of ${fmt(engine.processed)} web requests checked by AppSec`} tone="indigo" icon={<Activity className="w-4 h-4" />} />
         <Tile label="Brand (TLS cert)" value={cert?.daysLeft != null ? `${cert.daysLeft}d` : 'n/a'} sub={cert ? `${cert.issuer} · ${cert.names.length} names` : 'not found'} tone={certTone} icon={<Lock className="w-4 h-4" />} />
       </div>
+      {flow && (
+        <PastureMap prev={flow.prev} cur={flow.cur} state={{
+          blockedIPs: blocked,
+          gateUp: st.services.some((s) => s.name === 'crowdsec-firewall-bouncer' && s.state === 'active'),
+          edgeUp: !edge || (st.services.some((s) => s.name === 'openresty' && s.state === 'active') && st.appsec.listening),
+          engineUp: st.services.some((s) => s.name === 'crowdsec' && s.state === 'active') && st.lapi.listening,
+          mailcowUp: st.mailcowContainers.total > 0 && st.mailcowContainers.running === st.mailcowContainers.total,
+        }} />
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
         {/* Services & actions */}
