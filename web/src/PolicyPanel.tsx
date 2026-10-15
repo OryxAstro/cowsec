@@ -1,3 +1,5 @@
+import Select from './Select';
+import Flag from './Flag';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Globe, Loader2, Mail, Plus, Repeat, Save, ShieldCheck, TrendingUp, X } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
@@ -194,6 +196,7 @@ export default function PolicyPanel() {
           <div className="flex flex-wrap gap-2">
             {draft.homeCountries.map((c) => (
               <span key={c} className="inline-flex items-center space-x-1.5 bg-sky-950/50 border border-sky-800 text-sky-200 rounded-lg pl-2.5 pr-1 py-1 text-xs font-semibold">
+                <Flag code={c} className="w-4 h-4" />
                 <span className="font-mono">{c}</span>
                 {names[c] && <span className="text-sky-400/80 font-normal">{names[c]}</span>}
                 <button
@@ -285,15 +288,9 @@ export default function PolicyPanel() {
             <NumberField label={draft.escalation.enabled ? 'First ban' : 'Ban length'} value={draft.escalation.baseHours} min={1} max={168} suffix="hours" onChange={(v) => set((p) => void (p.escalation.baseHours = v))} />
             <label className={`block space-y-1 ${draft.escalation.enabled ? '' : 'opacity-50'}`}>
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Each repeat</span>
-              <select
-                value={draft.escalation.mode}
-                disabled={!draft.escalation.enabled}
-                onChange={(e) => set((p) => void (p.escalation.mode = e.target.value as 'linear' | 'double'))}
-                className="block bg-slate-950/60 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500"
-              >
-                <option value="double">doubles the ban</option>
-                <option value="linear">adds another first ban</option>
-              </select>
+              <Select<'linear' | 'double'> className={`w-56 ${draft.escalation.enabled ? '' : 'pointer-events-none'}`} value={draft.escalation.mode}
+                onChange={(v) => set((p) => void (p.escalation.mode = v))}
+                options={[{ value: 'double', label: 'doubles the ban' }, { value: 'linear', label: 'adds another first ban' }]} />
             </label>
             <NumberField label="Longest ban" value={draft.escalation.maxHours} min={1} max={720} suffix="hours" disabled={!draft.escalation.enabled} onChange={(v) => set((p) => void (p.escalation.maxHours = v))} />
             <NumberField
@@ -384,8 +381,7 @@ export default function PolicyPanel() {
                   return (
                     <tr key={c.code} className="border-t border-slate-800/60">
                       <td className="py-1.5">
-                        <span className="font-mono text-slate-400 mr-2">{c.code}</span>
-                        {c.name}
+                        <span className="inline-flex items-center gap-2"><Flag code={c.code} className="w-4 h-4" /><span className="font-mono text-slate-400">{c.code}</span>{c.name}</span>
                       </td>
                       <td className="py-1.5 text-right font-mono">{fmt(c.ips)}</td>
                       <td className="py-1.5 text-right font-mono">{fmt(c.attempts)}</td>

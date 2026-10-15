@@ -2,7 +2,7 @@
 
 # Troubleshooting
 
-<p align="center"><img src="assets/where-to-look.svg" alt="Where to look first" width="100%"></p>
+<p align="center"><a href="assets/full/where-to-look.webp" title="Open full size"><img src="assets/where-to-look.svg" alt="Where to look first" width="100%"></a></p>
 
 ## Where to look
 

@@ -841,3 +841,46 @@ func (t *Target) UpdateHub() (string, error) {
 	}
 	return combined, nil
 }
+
+// Hub curation: CowSec shows what matters on a mailcow server (mail, its web front end,
+// SSH, the OS and firewall, log enrichment) and hides other products' content.
+var (
+	relevantName = regexp.MustCompile(`(?i)postfix|dovecot|smtp|imap|sogo|rspamd|mailcow|nginx|openresty|/http-|base-http|http-cve|` +
+		`appsec-(virtual-patching|generic-rules|default)|\bssh|linux|debian|iptables|nftables|syslog|whitelist|good-actors|geoip|dateparse|rdns|enrich`)
+	mailOnly    = regexp.MustCompile(`(?i)postfix|dovecot|mailcow|sogo|rspamd`)
+	otherThings = regexp.MustCompile(`(?i)apache|\biis|wordpress|drupal|joomla|cpanel|magento|nextcloud|owncloud|zoneminder|mikrotik|vmware|fortinet|citrix|` +
+		`jira|confluence|grafana|jenkins|gitlab|gitea|home-?assistant|plex|emby|jellyfin|traefik|caddy|haproxy|mssql|postgres|mysql|mariadb|redis|mongo|` +
+		`windows|cisco|pfsense|opnsense|unifi|synology|qnap|proxmox|odoo|prestashop|moodle|ghost|vaultwarden|bitwarden|authelia|keycloak|k8s|kube|` +
+		`\baws|azure|gcp|freepbx|asterisk|exchange|zimbra|exim|sendmail|bot-challenge|crs-exclusion|bunkerweb|\bsmb|ftp|openvpn|wireguard|dokuwiki|` +
+		`phpmyadmin|tomcat|weblogic|laravel|symfony|django|ivanti|paloalto|sonicwall|barracuda|zyxel|netgear|hikvision|dahua|mailscanner|sharepoint|` +
+		`outlook-web|teamcity|minio|portainer|pihole|adguard|nginx-proxy-manager|npm-|vsftpd|proftpd|pure-ftpd|dropbear|endlessh|cowrie|honeypot|` +
+		`actual-budget|calibre|jellyseerr|overseerr|rocketchat|zammad|auditd`)
+)
+
+// RelevantHubItem reports whether an item belongs in CowSec's curated hub view.
+func RelevantHubItem(it ItemInfo) bool {
+	name := strings.ToLower(it.Name)
+	if otherThings.MatchString(name) {
+		return false
+	}
+	if author, _, _ := strings.Cut(name, "/"); author != "crowdsecurity" {
+		return mailOnly.MatchString(name)
+	}
+	return relevantName.MatchString(name)
+}
+
+// relevantCounts recounts each category to what the curated view shows.
+func (t *Target) relevantCounts(fallback map[string]int) map[string]int {
+	all, _, err := t.GetHubCatalog("all", true)
+	if err != nil {
+		return fallback
+	}
+	out := map[string]int{}
+	for _, it := range all {
+		if strings.Contains(it.Status, "enabled") || RelevantHubItem(it) {
+			out[it.Type]++
+			out["all"]++
+		}
+	}
+	return out
+}

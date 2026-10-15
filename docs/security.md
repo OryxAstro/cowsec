@@ -2,7 +2,7 @@
 
 # Security model
 
-<p align="center"><img src="assets/security-layers.svg" alt="Security layers" width="100%"></p>
+<p align="center"><a href="assets/full/security-layers.webp" title="Open full size"><img src="assets/security-layers.svg" alt="Security layers" width="100%"></a></p>
 
 ## Privileges
 

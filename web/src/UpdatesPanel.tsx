@@ -232,17 +232,17 @@ export default function UpdatesPanel() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <Card title="CrowdSec engine & bouncers" icon={<Package className="w-4 h-4 text-sky-400" />}
           right={<button onClick={() => start('apt-refresh')} disabled={busy} className={`${btn} text-sky-300 border border-sky-800 hover:bg-sky-950`}><RefreshCw className="w-3.5 h-3.5" /> Check for new versions</button>}>
-          <table className="w-full text-xs">
+          <table className="w-full text-xs table-fixed">
             <thead className="text-slate-500 text-left">
-              <tr><th className="py-1 font-semibold">Package</th><th className="py-1 font-semibold">Installed</th><th className="py-1 font-semibold">Available</th><th className="py-1 font-semibold text-right">Status</th></tr>
+              <tr><th className="py-1 font-semibold w-[30%]">Package</th><th className="py-1 font-semibold w-[24%]">Installed</th><th className="py-1 font-semibold w-[24%]">Available</th><th className="py-1 font-semibold text-right">Status</th></tr>
             </thead>
             <tbody className="text-slate-300 cs-stagger">
               {u.packages.filter((p) => p.installed).map((p) => (
                 <tr key={p.name} className="border-t border-slate-800/60">
-                  <td className="py-1.5 font-mono">{p.name}</td>
-                  <td className="py-1.5 font-mono text-slate-400">{p.installed ?? '—'}</td>
-                  <td className="py-1.5 font-mono text-slate-400">{p.candidate ?? '—'}</td>
-                  <td className="py-1.5 text-right whitespace-nowrap">{p.upgradable ? <span className="text-amber-300">{p.managed ? 'update available' : 'via system updates'}</span> : <span className="text-emerald-400">up to date</span>}</td>
+                  <td className="py-1.5 pr-2 font-mono break-words align-top">{p.name}</td>
+                  <td className="py-1.5 pr-2 font-mono text-slate-400 break-all align-top">{p.installed ?? '—'}</td>
+                  <td className="py-1.5 pr-2 font-mono text-slate-400 break-all align-top">{p.candidate ?? '—'}</td>
+                  <td className="py-1.5 text-right align-top">{p.upgradable ? <span className="text-amber-300">{p.managed ? 'update available' : 'via system updates'}</span> : <span className="text-emerald-400">up to date</span>}</td>
                 </tr>
               ))}
             </tbody>

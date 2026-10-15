@@ -43,12 +43,15 @@ const MANUAL: Article[] = [
   { id: 'farm', group: 'The Farm', title: 'Farmhouse, Paddocks, Stalls, Ear Tags', summary: 'Overview, domains, mailboxes and aliases.',
     body: ['Everything runs through mailcow\'s API with a key that only works from this server. Every change is written to CowSec\'s audit log.', { img: mailcowFlow, alt: 'How CowSec manages mailcow' },
       { list: ['Paddocks: add, pause or delete domains and set their limits.', 'Stalls: add mailboxes with a generated password, reset passwords, see quotas and last logins.', 'Ear Tags: aliases and catch-alls (@example.org).'] }] },
-  { id: 'brand-irons', group: 'The Farm', title: 'Brand Irons, Quarantine, Milk Queue, Farm Log', summary: 'DKIM, held mail, the outgoing queue and mailcow\'s logs.',
-    body: [{ list: ['Brand Irons shows each domain\'s DKIM key and the exact DNS record to publish.', 'Quarantine Pen: release or delete mail rspamd held back.', 'Milk Queue: see stuck outgoing mail with the reason; retry, hold or delete it.', 'Farm Log: postfix, dovecot, rspamd, SOGo, netfilter, ACME and more.'] }] },
+  { id: 'brand-irons', group: 'The Farm', title: 'DNS records, Quarantine, Milk Queue, Farm Log', summary: 'DNS checklist, held mail, the outgoing queue and mailcow\'s logs.',
+    body: [{ list: ['Paddocks → DNS: every record mailcow needs (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover), checked live, with copy buttons and a zone-file download.', 'Quarantine Pen: release or delete mail rspamd held back.', 'Milk Queue: see stuck outgoing mail with the reason; retry, hold or delete it.', 'Farm Log: postfix, dovecot, rspamd, SOGo, netfilter, ACME and more.'] }] },
   { id: 'farmhands', group: 'The Farm', title: 'Farmhands, Grazing Limits, Locked Lanes, Cattle Routes', summary: 'Domain admins, rate limits, TLS policy, relays.',
     body: [{ list: ['Farmhands: domain administrators, their domains and each permission.', 'Grazing Limits: messages per second, minute, hour or day for a domain or mailbox, so a hijacked account can\'t spray spam.', 'Locked Lanes: require TLS, a verified certificate or DANE for particular destinations.', 'Cattle Routes: send mail through a smarthost per domain, or route destinations to a specific next hop.'] }] },
   { id: 'herd-watch', group: 'Herd Watch', title: 'Moo Alerts, Feed Store, Bouncers & Herd Dogs', summary: 'Detections, the hub and registered components.',
     body: [{ list: ['Moo Alerts: what CrowdSec detected, newest first.', 'Feed Store: install, upgrade or remove collections, parsers, scenarios and WAF rules.', 'Bouncers & Herd Dogs: the bouncers and machines registered with CrowdSec\'s local API.'] }] },
+  { id: 'bessie', group: 'Your account', title: 'Bessie the Bouncer (the mascot)', summary: 'Her seasonal wardrobe, and how to pick a look.',
+    body: ['Bessie guards the console. Through the year she swaps her hat and collar charm: a security cap every day, a party hat at New Year, a love lock for Valentine\'s, bunny ears at Easter, sunglasses in summer, a witch\'s hat for Halloween and a Santa hat in December.',
+      { list: ['Settings → Mascot: follow the calendar, or pin any look.', 'The choice is per browser.', 'Every look stays inside the shield, so she reads at any size.'] }] },
   { id: 'settings', group: 'Your account', title: 'Settings and sign-in', summary: 'Your account, 2FA and the sign-in log.',
     body: ['Sign-in always needs a password and a second factor (an authenticator app, or Duo for directory accounts). Settings shows recent sign-ins and lets you reset your authenticator.',
       { code: 'sudo cowsec auth local-admin set <name>   # add or reset a local account\nsudo cowsec auth totp reset <name>        # re-enrol an authenticator' }] },
@@ -268,13 +271,14 @@ export function AboutPanel() {
           <div>
             <h2 className="text-3xl font-bold text-white tracking-tight">CowSec</h2>
             <p className="text-sm text-slate-400">The browser installer and security console for CrowdSec on mailcow</p>
+            <p className="text-xs text-slate-500 mt-1">Guarded by <b className="text-slate-300">Bessie the Bouncer</b>, head of security. She dresses for the season; pick her look in Settings → Mascot.</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2 text-xs font-mono">
             <span className="px-2.5 py-1 rounded-lg border border-sky-500/30 bg-sky-500/10 text-sky-200">version {version || '…'}</span>
             <span className="px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300">© {new Date().getFullYear()} OryxAstro</span>
             <a href="https://github.com/OryxAstro/cowsec" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white">github.com/OryxAstro/cowsec <ExternalLink className="w-3 h-3" /></a>
           </div>
-          <p className="text-xs text-slate-500 max-w-xl">An independent community project. Not affiliated with or endorsed by mailcow or CrowdSec. All product names belong to their owners.</p>
+          <p className="text-xs text-slate-500 max-w-xl">Country flags: Twemoji, © Twitter and contributors, CC-BY 4.0. An independent community project. Not affiliated with or endorsed by mailcow or CrowdSec. All product names belong to their owners.</p>
         </div>
       </div>
 

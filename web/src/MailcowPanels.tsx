@@ -4,9 +4,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, AtSign, Box, CheckCircle2, Copy, FileText, Globe, HardDrive, Inbox, KeyRound, Loader2,
-  Pause, Play, Plus, RefreshCw, Search, Send, Server, ShieldAlert, Trash2, X,
+  Pause, Pencil, Play, Plus, RefreshCw, Search, Send, Server, ShieldAlert, Trash2, X,
 } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
+import { AliasModal, DnsModal, DomainModal, MailboxModal } from './MailcowForms';
+import Select from './Select';
 
 // ---------------------------------------------------------------- shared
 
@@ -212,37 +214,15 @@ interface Domain {
 export function DomainsPanel() {
   const { data, error, notConfigured, reload } = useApi<Domain[]>('/api/mailcow/domains');
   const { toast, run } = useToast();
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ domain: '', description: '', mailboxes: 10, aliases: 400, quota: 10240, defquota: 3072, maxquota: 10240 });
+  const [modal, setModal] = useState<{ kind: 'add' } | { kind: 'edit'; d: Domain } | { kind: 'dns'; d: string } | null>(null);
   if (notConfigured) return <NotConfigured />;
-  const add = () =>
-    run(() => send('POST', '/api/mailcow/domains', { ...f, active: true }), () => {
-      setAdding(false);
-      setF({ ...f, domain: '', description: '' });
-      reload();
-    });
   return (
     <div className="space-y-6">
       {toast}
-      <Header title="Paddocks (Domains)" sub="Mail domains on this server" action={<button onClick={() => setAdding(!adding)} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add domain</button>} />
-      {adding && (
-        <Card title="New paddock" icon={<Plus className="w-4 h-4 text-emerald-400" />}>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-            <Field label="Domain"><input className={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value.trim().toLowerCase() })} placeholder="example.org" /></Field>
-            <Field label="Description"><input className={input} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
-            <Field label="Max mailboxes"><input type="number" className={input} value={f.mailboxes} onChange={(e) => setF({ ...f, mailboxes: +e.target.value })} /></Field>
-            <Field label="Max aliases"><input type="number" className={input} value={f.aliases} onChange={(e) => setF({ ...f, aliases: +e.target.value })} /></Field>
-            <Field label="Domain quota (MiB)"><input type="number" className={input} value={f.quota} onChange={(e) => setF({ ...f, quota: +e.target.value })} /></Field>
-            <Field label="Default mailbox quota (MiB)"><input type="number" className={input} value={f.defquota} onChange={(e) => setF({ ...f, defquota: +e.target.value })} /></Field>
-            <Field label="Max mailbox quota (MiB)"><input type="number" className={input} value={f.maxquota} onChange={(e) => setF({ ...f, maxquota: +e.target.value })} /></Field>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={add} disabled={!f.domain} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}>Create</button>
-            <button onClick={() => setAdding(false)} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
-          </div>
-          <p className="text-[11px] text-slate-500">mailcow creates a DKIM key for new domains. Publish it from Brand Irons (DKIM), and add MX/SPF/DMARC records at your DNS provider.</p>
-        </Card>
-      )}
+      {modal?.kind === 'add' && <DomainModal onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      {modal?.kind === 'edit' && <DomainModal domain={modal.d} onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      {modal?.kind === 'dns' && <DnsModal domain={modal.d} onClose={() => setModal(null)} run={run} />}
+      <Header title="Paddocks (Domains)" sub="Mail domains on this server, their limits and their DNS" action={<button onClick={() => setModal({ kind: 'add' })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add domain</button>} />
       {error && <Problem text={error} />}
       {!data ? <Loading text="Counting paddocks…" /> : (
         <Card title={`${data.length} domain${data.length === 1 ? '' : 's'}`} icon={<Globe className="w-4 h-4 text-sky-400" />}>
@@ -250,7 +230,7 @@ export function DomainsPanel() {
             <thead className="text-xs text-slate-500 text-left">
               <tr><th className="py-2">Domain</th><th>Mailboxes</th><th>Aliases</th><th>Storage</th><th>Status</th><th /></tr>
             </thead>
-            <tbody>
+            <tbody className="cs-stagger">
               {data.map((d) => {
                 const used = Number(d.bytes_total || 0);
                 const pct = d.max_quota_for_domain ? (used / Number(d.max_quota_for_domain)) * 100 : 0;
@@ -265,8 +245,10 @@ export function DomainsPanel() {
                     <td><div className="flex items-center gap-2"><Bar pct={pct} /><span className="text-xs text-slate-400 font-mono">{mb(used)}</span></div></td>
                     <td><Pill ok={on(d.active)} /></td>
                     <td className="text-right whitespace-nowrap">
-                      <button onClick={() => run(() => send('PATCH', `/api/mailcow/domains/${d.domain_name}`, { active: !on(d.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`}>
-                        {on(d.active) ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />} {on(d.active) ? 'Disable' : 'Enable'}
+                      <button onClick={() => setModal({ kind: 'dns', d: d.domain_name })} className={`${btn} text-sky-300 hover:text-white hover:bg-slate-800`} title="DNS records"><Globe className="w-3.5 h-3.5" /> DNS</button>
+                      <button onClick={() => setModal({ kind: 'edit', d })} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => run(() => send('PATCH', `/api/mailcow/domains/${d.domain_name}`, { active: !on(d.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title={on(d.active) ? 'Disable' : 'Enable'}>
+                        {on(d.active) ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                       </button>
                       <Confirm label="Delete domain (must have no mailboxes)" onConfirm={() => run(() => send('DELETE', `/api/mailcow/domains/${d.domain_name}`), reload)}>
                         <Trash2 className="w-3.5 h-3.5" />
@@ -324,8 +306,7 @@ export function MailboxesPanel() {
   const { data, error, notConfigured, reload } = useApi<Mailbox[]>(`/api/mailcow/mailboxes${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`);
   const { toast, run } = useToast();
   const [q, setQ] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ local_part: '', domain: '', name: '', quota: 3072, password: '' });
+  const [modal, setModal] = useState<{ user?: string } | null>(null);
   const [pwFor, setPwFor] = useState('');
   const [newPw, setNewPw] = useState('');
   const list = useMemo(() => (data || []).filter((m) => !q || m.username.includes(q.toLowerCase()) || (m.name || '').toLowerCase().includes(q.toLowerCase())), [data, q]);
@@ -334,39 +315,15 @@ export function MailboxesPanel() {
   return (
     <div className="space-y-6">
       {toast}
-      <Header title="Stalls (Mailboxes)" sub="Mail accounts, quotas and last logins" action={<button onClick={() => { setAdding(!adding); setF({ ...f, password: genPw(), domain: f.domain || domains.data?.[0]?.domain_name || '' }); }} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add mailbox</button>} />
-      {adding && (
-        <Card title="New stall" icon={<Plus className="w-4 h-4 text-emerald-400" />}>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 text-xs">
-            <Field label="Address">
-              <div className="flex items-center gap-1">
-                <input className={`${input} w-28`} value={f.local_part} onChange={(e) => setF({ ...f, local_part: e.target.value.trim() })} placeholder="alice" />
-                <span className="text-slate-500">@</span>
-                <select className={input} value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })}>
-                  {(domains.data || []).map((d) => <option key={d.domain_name}>{d.domain_name}</option>)}
-                </select>
-              </div>
-            </Field>
-            <Field label="Full name"><input className={input} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-            <Field label="Quota (MiB)"><input type="number" className={input} value={f.quota} onChange={(e) => setF({ ...f, quota: +e.target.value })} /></Field>
-            <Field label="Password"><input className={`${input} font-mono`} value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
-          </div>
-          <div className="flex gap-2">
-            <button disabled={!f.local_part || !f.domain || f.password.length < 10} onClick={() => run(() => send('POST', '/api/mailcow/mailboxes', { ...f, active: true }), () => { setAdding(false); reload(); })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}>Create</button>
-            <button onClick={() => navigator.clipboard?.writeText(f.password)} className={`${btn} text-slate-400 hover:text-white`}><Copy className="w-3.5 h-3.5" /> Copy password</button>
-            <button onClick={() => setAdding(false)} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
-          </div>
-        </Card>
-      )}
+      {modal && <MailboxModal domains={domains.data || []} username={modal.user} onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      <Header title="Stalls (Mailboxes)" sub="Mail accounts, quotas and last logins" action={<button onClick={() => setModal({})} disabled={!domains.data?.length} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add mailbox</button>} />
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
           <Search className="w-4 h-4 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input className={`${input} pl-8 w-64`} placeholder="Search mailboxes" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <select className={input} value={domain} onChange={(e) => setDomain(e.target.value)}>
-          <option value="">All domains</option>
-          {(domains.data || []).map((d) => <option key={d.domain_name}>{d.domain_name}</option>)}
-        </select>
+        <Select className="w-64" value={domain} onChange={setDomain} searchable={(domains.data || []).length > 8} ariaLabel="Filter by domain"
+          options={[{ value: '', label: 'All domains' }, ...(domains.data || []).map((d) => ({ value: d.domain_name, label: d.domain_name }))]} />
       </div>
       {error && <Problem text={error} />}
       {!data ? <Loading text="Checking the stalls…" /> : (
@@ -394,6 +351,7 @@ export function MailboxesPanel() {
                   <td className="text-xs text-slate-400">{lastSeen(m.last_imap_login)} / {lastSeen(m.last_smtp_login)}</td>
                   <td><Pill ok={on(m.active)} /></td>
                   <td className="text-right whitespace-nowrap">
+                    <button onClick={() => setModal({ user: m.username })} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => { setPwFor(pwFor === m.username ? '' : m.username); setNewPw(genPw()); }} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Set a new password"><KeyRound className="w-3.5 h-3.5" /></button>
                     <button onClick={() => run(() => send('PATCH', `/api/mailcow/mailboxes/${encodeURIComponent(m.username)}`, { active: !on(m.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title={on(m.active) ? 'Disable' : 'Enable'}>
                       {on(m.active) ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
@@ -414,26 +372,20 @@ export function MailboxesPanel() {
 
 // ---------------------------------------------------------------- aliases
 
-interface Alias { id: number; address: string; goto: string; active: number; domain: string; is_catch_all?: number }
+interface Alias { id: number; address: string; goto: string; active: number; domain: string; is_catch_all?: number; sogo_visible?: number; internal?: number; private_comment?: string; public_comment?: string }
 
 export function AliasesPanel() {
   const { data, error, notConfigured, reload } = useApi<Alias[]>('/api/mailcow/aliases');
   const { toast, run } = useToast();
-  const [f, setF] = useState({ address: '', goto: '' });
+  const [modal, setModal] = useState<{ alias?: Alias } | null>(null);
   const [q, setQ] = useState('');
   if (notConfigured) return <NotConfigured />;
   const list = (data || []).filter((a) => !q || a.address.includes(q.toLowerCase()) || a.goto.includes(q.toLowerCase()));
   return (
     <div className="space-y-6">
       {toast}
-      <Header title="Ear Tags (Aliases)" sub="Forwarding addresses and catch-alls" />
-      <Card title="New ear tag" icon={<AtSign className="w-4 h-4 text-emerald-400" />}>
-        <div className="flex flex-wrap items-end gap-3 text-xs">
-          <Field label="Alias address (or @domain for catch-all)"><input className={`${input} w-72`} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value.trim() })} placeholder="sales@example.org" /></Field>
-          <Field label="Deliver to (comma-separated)"><input className={`${input} w-96`} value={f.goto} onChange={(e) => setF({ ...f, goto: e.target.value })} placeholder="alice@example.org, bob@example.org" /></Field>
-          <button disabled={!f.address || !f.goto} onClick={() => run(() => send('POST', '/api/mailcow/aliases', { ...f, active: true }), () => { setF({ address: '', goto: '' }); reload(); })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add</button>
-        </div>
-      </Card>
+      {modal && <AliasModal alias={modal.alias} onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      <Header title="Ear Tags (Aliases)" sub="Forwarding addresses and catch-alls" action={<button onClick={() => setModal({})} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add alias</button>} />
       <div className="relative w-64">
         <Search className="w-4 h-4 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
         <input className={`${input} pl-8 w-full`} placeholder="Search aliases" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -451,6 +403,7 @@ export function AliasesPanel() {
                     <td className="text-xs text-slate-300 font-mono break-all">{a.goto.split(',').join(', ')}</td>
                     <td><Pill ok={on(a.active)} /></td>
                     <td className="text-right whitespace-nowrap">
+                      <button onClick={() => setModal({ alias: a })} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`} title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => run(() => send('PATCH', `/api/mailcow/aliases/${a.id}`, { active: !on(a.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`}>{on(a.active) ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}</button>
                       <Confirm label="Delete alias" onConfirm={() => run(() => send('DELETE', `/api/mailcow/aliases/${a.id}`), reload)}><Trash2 className="w-3.5 h-3.5" /></Confirm>
                     </td>
@@ -461,48 +414,6 @@ export function AliasesPanel() {
           )}
         </Card>
       )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- DKIM
-
-interface Dkim { pubkey?: string; length?: string; dkim_txt?: string; dkim_selector?: string; privkey?: string }
-
-function DkimRow({ domain, onToast }: { domain: string; onToast: ReturnType<typeof useToast>['run'] }) {
-  const { data, reload } = useApi<Dkim>(`/api/mailcow/dkim/${domain}`);
-  const has = !!data?.dkim_txt;
-  const record = `${data?.dkim_selector || 'dkim'}._domainkey.${domain}`;
-  return (
-    <div className="bg-slate-950/50 border border-slate-800 rounded-xl p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="font-semibold text-white">{domain}</p>
-        {has ? <Pill ok yes={`${data?.length || ''} bit`} /> : <Pill ok={false} no="no key" />}
-      </div>
-      {has ? (
-        <>
-          <p className="text-[11px] text-slate-500">TXT record name</p>
-          <div className="flex items-center gap-2"><code className="text-xs text-sky-200 break-all">{record}</code><button onClick={() => navigator.clipboard?.writeText(record)} className={`${btn} text-slate-400`}><Copy className="w-3.5 h-3.5" /></button></div>
-          <p className="text-[11px] text-slate-500">TXT record value</p>
-          <div className="flex items-start gap-2"><code className="text-[11px] text-slate-300 break-all leading-relaxed">{data?.dkim_txt}</code><button onClick={() => navigator.clipboard?.writeText(data?.dkim_txt || '')} className={`${btn} text-slate-400`}><Copy className="w-3.5 h-3.5" /></button></div>
-        </>
-      ) : (
-        <button onClick={() => onToast(() => send('POST', '/api/mailcow/dkim', { domain, key_size: 2048 }), reload)} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><KeyRound className="w-3.5 h-3.5" /> Generate 2048-bit key</button>
-      )}
-    </div>
-  );
-}
-
-export function DkimPanel() {
-  const { data, error, notConfigured } = useApi<Domain[]>('/api/mailcow/domains');
-  const { toast, run } = useToast();
-  if (notConfigured) return <NotConfigured />;
-  return (
-    <div className="space-y-6">
-      {toast}
-      <Header title="Brand Irons (DKIM)" sub="Signing keys, and the DNS records to publish for each domain" />
-      {error && <Problem text={error} />}
-      {!data ? <Loading text="Heating the irons…" /> : <div className="grid lg:grid-cols-2 gap-4">{data.map((d) => <DkimRow key={d.domain_name} domain={d.domain_name} onToast={run} />)}</div>}
     </div>
   );
 }

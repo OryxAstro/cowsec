@@ -1,7 +1,8 @@
 // CrowdSec pages: decisions, AppSec WAF, hub, alerts, bouncers & machines, whitelists.
+import Flag from './Flag';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Server, Shield, Layers, CheckCircle2, Activity, Radio, RefreshCw, Download, X, Unlock, Globe, ShieldAlert, ExternalLink, Search, Trash2, RotateCcw, Boxes, AlertTriangle, ShieldCheck, Ban, Clock, Copy, Check, Code2, Package, Library,
+  Server, Shield, Layers, CheckCircle2, Activity, Radio, RefreshCw, Download, X, Unlock, Globe, ShieldAlert, ExternalLink, Search, Trash2, RotateCcw, Boxes, AlertTriangle, ShieldCheck, Ban, Clock, Copy, Check, Package, Library,
 } from 'lucide-react';
 import HostPanel from './HostPanel';
 import PolicyPanel from './PolicyPanel';
@@ -120,7 +121,6 @@ interface CrowdSecRule {
 
 
 // Emoji flag from an ISO code (regional indicator symbols): no external image requests.
-const flagEmoji = (code: string) => code.toUpperCase().replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)));
 
 function CountryFlagBadge({ geo }: { geo?: CrowdSecDecision['geo'] }) {
   if (!geo || !geo.countryCode || geo.countryCode === 'UN' || geo.countryCode === 'UNKNOWN') {
@@ -143,7 +143,7 @@ function CountryFlagBadge({ geo }: { geo?: CrowdSecDecision['geo'] }) {
   return (
     <div className="inline-flex flex-col gap-0.5">
       <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs bg-slate-800/90 text-slate-200 border border-slate-700/80" title={`${geo.country || code} (${code})`}>
-        <span className="text-sm leading-none">{/^[A-Z]{2}$/.test(code) ? flagEmoji(code) : '🌐'}</span>
+        <Flag code={code} className="w-4 h-4" />
         <span className="font-semibold text-slate-100">{code}</span>
         {geo.country && <span className="text-slate-400 font-sans text-xs truncate max-w-[110px]">{geo.country}</span>}
       </div>
@@ -1155,13 +1155,11 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
                     {/* 7 Hub Categories as Pills */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       {[
-                        { id: 'collections', label: 'Collections', icon: Package, count: hubCounts['collections'] || 131, color: 'purple' },
-                        { id: 'scenarios', label: 'Attack Scenarios', icon: ShieldAlert, count: hubCounts['scenarios'] || 751, color: 'amber' },
-                        { id: 'parsers', label: 'Log Parsers', icon: Radio, count: hubCounts['parsers'] || 133, color: 'blue' },
-                        { id: 'postoverflows', label: 'Postoverflows', icon: Layers, count: hubCounts['postoverflows'] || 10, color: 'rose' },
-                        { id: 'appsec-configs', label: 'WAF Configurations', icon: ShieldCheck, count: hubCounts['appsec-configs'] || 4, color: 'indigo' },
-                        { id: 'appsec-rules', label: 'WAF Rules', icon: Code2, count: hubCounts['appsec-rules'] || 93, color: 'sky' },
-                        { id: 'all', label: 'Show All (1,120+)', icon: Boxes, count: 1122, color: 'slate' },
+                        { id: 'collections', label: 'Collections', icon: Package, count: hubCounts['collections'] ?? 0, color: 'purple' },
+                        { id: 'scenarios', label: 'Attack Scenarios', icon: ShieldAlert, count: hubCounts['scenarios'] ?? 0, color: 'amber' },
+                        { id: 'parsers', label: 'Log Parsers', icon: Radio, count: hubCounts['parsers'] ?? 0, color: 'blue' },
+                        { id: 'postoverflows', label: 'Postoverflows', icon: Layers, count: hubCounts['postoverflows'] ?? 0, color: 'rose' },
+                        { id: 'all', label: 'All relevant', icon: Boxes, count: hubCounts['all'] ?? 0, color: 'slate' },
                       ].map(cat => {
                         const Icon = cat.icon;
                         const isSelected = hubCategory === cat.id;
@@ -1234,8 +1232,8 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
 
                   {/* Quick Filter Tag Buttons */}
                   <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="text-slate-500 text-[11px] font-medium mr-1">Popular Collections:</span>
-                    {['postfix', 'dovecot', 'nginx', 'ssh', 'cve', 'appsec', 'whitelist', 'linux', 'mysql'].map(tag => (
+                    <span className="text-slate-500 text-[11px] font-medium mr-1">Showing what matters on a mail server (installed items always show; WAF rules live in Electric Fence). Quick filters:</span>
+                    {['postfix', 'dovecot', 'nginx', 'ssh', 'http', 'cve', 'whitelist', 'linux'].map(tag => (
                       <button
                         key={tag}
                         onClick={() => {
@@ -1287,7 +1285,7 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {hubItems.map((item: any) => {
                         const isEnabled = item.status && item.status.includes('enabled');
-                        const isUpdate = item.status && item.status.includes('update-available');
+                        const isUpdate = isEnabled && item.status.includes('update-available');
                         const isActionLoading = hubActionLoading === item.name;
 
                         const author = item.author || 'crowdsecurity';

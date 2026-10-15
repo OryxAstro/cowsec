@@ -39,7 +39,7 @@ interface HostStatus {
   };
   lapi: { listening: boolean };
   acquisition: { acquisition?: Record<string, { reads?: number; parsed?: number; unparsed?: number; pour?: number; whitelisted?: number }> };
-  bouncerMetrics: { bouncers?: Record<string, Record<string, { active_decisions?: { ip?: number }; dropped?: { byte?: number; packet?: number }; processed?: { byte?: number; packet?: number } }>> };
+  bouncerMetrics: { bouncers?: Record<string, Record<string, { active_decisions?: { ip?: number }; dropped?: { byte?: number; packet?: number; request?: number }; processed?: { byte?: number; packet?: number; request?: number } }>> };
   firewall: { ipsets: Record<string, number | null>; iptablesRules: number };
   certificate: { notAfter: string | null; daysLeft: number | null; issuer: string | null; names: string[] } | null;
   cloudflareRealIP: { ranges: number; updated: string } | null;
@@ -162,7 +162,10 @@ function sample(st: HostStatus): FlowSample {
     .reduce((a, [, v]) => a + (v.reads ?? 0), 0);
   let dropped = 0;
   for (const origins of Object.values(st.bouncerMetrics.bouncers ?? {})) for (const v of Object.values(origins)) dropped += v.dropped?.packet ?? 0;
-  return { t: Date.now(), webChecked: eng.processed ?? 0, webBlocked: eng.blocked ?? 0, mailLines, dropped };
+  const edge = Object.entries(st.bouncerMetrics.bouncers ?? {}).find(([n]) => /openresty|nginx/i.test(n))?.[1] ?? {};
+  const webChecked = edge['']?.processed?.request ?? eng.processed ?? 0;
+  const webBlocked = Object.values(edge).reduce((a, v) => a + (v.dropped?.request ?? 0), 0) + (eng.blocked ?? 0);
+  return { t: Date.now(), webChecked, webBlocked, mailLines, dropped };
 }
 
 export default function HostPanel() {
@@ -238,6 +241,9 @@ export default function HostPanel() {
   const servicesUp = st.services.filter((s) => s.state === 'active').length;
   const blocked = Object.values(st.firewall.ipsets).reduce<number>((a, b) => a + (b ?? 0), 0);
   const engine = Object.values(st.appsec.metrics['appsec-engine'] ?? {})[0] ?? {};
+  const edgeM = Object.entries(st.bouncerMetrics.bouncers ?? {}).find(([n]) => /openresty|nginx/i.test(n))?.[1] ?? {};
+  const edgeChecked = edgeM['']?.processed?.request ?? engine.processed ?? 0;
+  const edgeStopped = Object.values(edgeM).reduce((a, v) => a + (v.dropped?.request ?? 0), 0) + (engine.blocked ?? 0);
   const rules = Object.entries(Object.values(st.appsec.metrics['appsec-rule'] ?? {})[0] ?? {})
     .map(([name, v]) => ({ name, triggered: v.triggered ?? 0 }))
     .sort((a, b) => b.triggered - a.triggered);
@@ -258,7 +264,7 @@ export default function HostPanel() {
         <Tile label="Herd status" value={allUp ? 'Herd safe' : 'Udderly degraded'} sub={`${servicesUp}/${st.services.length} barn services · electric fence ${st.appsec.listening ? 'live' : 'off!'}`}
           tone={allUp ? 'emerald' : 'rose'} icon={allUp ? <ShieldCheck className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />} />
         <Tile label="Wolves at the gate" value={fmt(blocked)} sub={`blocked IPs · ${Object.keys(st.firewall.ipsets).length} sets · ${st.firewall.iptablesRules} firewall rules`} tone="rose" icon={<Flame className="w-4 h-4" />} />
-        <Tile label="Zapped by the fence" value={fmt(engine.blocked)} sub={`of ${fmt(engine.processed)} web requests checked by AppSec`} tone="indigo" icon={<Activity className="w-4 h-4" />} />
+        <Tile label="Zapped by the fence" value={fmt(edgeStopped)} sub={`of ${fmt(edgeChecked)} web requests stopped at the edge (bans + WAF)`} tone="indigo" icon={<Activity className="w-4 h-4" />} />
         <Tile label="Brand (TLS cert)" value={cert?.daysLeft != null ? `${cert.daysLeft}d` : 'n/a'} sub={cert ? `${cert.issuer} · ${cert.names.length} names` : 'not found'} tone={certTone} icon={<Lock className="w-4 h-4" />} />
       </div>
       {flow && (
@@ -324,8 +330,8 @@ export default function HostPanel() {
                     <span className="text-slate-300">{originLabel(origin)}</span>
                     <span className="font-mono text-slate-400">
                       {m.active_decisions?.ip != null && <span className="text-rose-300">{fmt(m.active_decisions.ip)} IPs</span>}
-                      {m.dropped && <span className="ml-3">dropped {bytes(m.dropped.byte)} / {fmt(m.dropped.packet)} pkts</span>}
-                      {m.processed && <span>{bytes(m.processed.byte)} / {fmt(m.processed.packet)} pkts inspected</span>}
+                      {m.dropped && <span className="ml-3">dropped {m.dropped.request != null ? `${fmt(m.dropped.request)} requests` : `${bytes(m.dropped.byte)} / ${fmt(m.dropped.packet)} pkts`}</span>}
+                      {m.processed && <span>{m.processed.request != null ? `${fmt(m.processed.request)} requests checked` : `${bytes(m.processed.byte)} / ${fmt(m.processed.packet)} pkts inspected`}</span>}
                     </span>
                   </div>
                 ))}

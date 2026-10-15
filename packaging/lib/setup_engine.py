@@ -1457,6 +1457,12 @@ def step_mailcow_api(c, r, ctx):
     if changed:
         compose(mc["dir"], ["up", "-d"], r)
     ctx["restart_cowsec"] = True
+    if not os.path.exists(NETFILTER_STATE):
+        # mailcow's netfilter and CrowdSec side by side, with trusted networks kept in step
+        try:
+            netfilter_coordinate("side-by-side", True, r)
+        except Exception as e:  # mailcow may still be starting; the console can apply it later
+            r.log("netfilter coordination not applied yet: %s" % e)
 
 
 CONSOLE_SITE = """# Managed by CowSec: the console at {host} ({mode}).

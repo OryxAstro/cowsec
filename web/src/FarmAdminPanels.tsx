@@ -1,6 +1,7 @@
 // The Farm, part two: domain administrators and their permissions, rate limits, TLS
 // policy maps, relay hosts and transports, and mailcow's own ban engine (netfilter) with
 // its coordination with CrowdSec. Same validated /api/mailcow endpoints and audit log.
+import Select from './Select';
 import { useEffect, useState } from 'react';
 import {
   ArrowRight, Dog, Gauge, Lock, Pause, Play, Plus, RefreshCw, Route, Save, ShieldCheck, Trash2, Users, Workflow,
@@ -143,7 +144,7 @@ function LimitRow({ kind, name, rl, run, reload }: { kind: 'domain' | 'mailbox';
       <td className="whitespace-nowrap">
         <input type="number" min={0} className={`${input} w-24`} value={value} onChange={(e) => setValue(Math.max(0, +e.target.value))} />
         <span className="text-xs text-slate-500 mx-1.5">per</span>
-        <select className={input} value={frame} onChange={(e) => setFrame(e.target.value)}>{FRAMES.map(([f, l]) => <option key={f} value={f}>{l}</option>)}</select>
+        <Select compact className="inline-block w-28 align-middle" value={frame} onChange={setFrame} options={FRAMES.map(([f, l]) => ({ value: f, label: l }))} ariaLabel="Per" />
       </td>
       <td className="text-right">
         <button onClick={() => run(() => send('PUT', `/api/mailcow/ratelimits/${kind}/${encodeURIComponent(name)}`, { value, frame }), reload)} className={`${btn} text-slate-300 hover:bg-slate-800`}><Save className="w-3.5 h-3.5" /> {value ? 'Set' : 'Remove'}</button>
@@ -210,7 +211,7 @@ export function LockedLanesPanel() {
       <Card title="New lane" icon={<Plus className="w-4 h-4 text-emerald-400" />}>
         <div className="grid sm:grid-cols-3 gap-3 text-xs">
           <Field label="Destination"><input className={input} value={f.dest} onChange={(e) => setF({ ...f, dest: e.target.value.trim().toLowerCase() })} placeholder="bank.example" /></Field>
-          <Field label="Policy"><select className={input} value={f.policy} onChange={(e) => setF({ ...f, policy: e.target.value })}>{POLICIES.map(([p, l]) => <option key={p} value={p}>{p}: {l}</option>)}</select></Field>
+          <Field label="Policy"><Select value={f.policy} onChange={(v) => setF({ ...f, policy: v })} options={POLICIES.map(([p, l]) => ({ value: p, label: p, hint: l }))} /></Field>
           <Field label="Parameters (optional)"><input className={input} value={f.parameters} onChange={(e) => setF({ ...f, parameters: e.target.value })} placeholder="e.g. protocols=>=TLSv1.2" /></Field>
         </div>
         <button disabled={!f.dest} onClick={() => run(() => send('POST', '/api/mailcow/tls-policies', { ...f, active: true }), () => { setF({ ...f, dest: '', parameters: '' }); reload(); })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}>Add</button>
@@ -225,9 +226,7 @@ export function LockedLanesPanel() {
               <tr key={t.id} className="border-t border-slate-800/70">
                 <td className="py-2 font-mono text-xs text-white">{t.dest}</td>
                 <td>
-                  <select className={input} value={t.policy} onChange={(e) => run(() => send('PATCH', `/api/mailcow/tls-policies/${t.id}`, { policy: e.target.value }), reload)}>
-                    {POLICIES.map(([p]) => <option key={p} value={p}>{p}</option>)}
-                  </select>
+                  <Select compact className="w-36" value={t.policy} onChange={(v) => run(() => send('PATCH', `/api/mailcow/tls-policies/${t.id}`, { policy: v }), reload)} options={POLICIES.map(([p, l]) => ({ value: p, label: p, hint: l }))} />
                 </td>
                 <td className="text-xs font-mono text-slate-400">{t.parameters}</td>
                 <td><Pill ok={on(t.active)} /></td>
@@ -296,10 +295,8 @@ export function CattleRoutesPanel() {
               {list<{ domain_name: string; relayhost?: string | number }>(doms.data).map((d) => (
                 <div key={d.domain_name} className="flex items-center justify-between text-xs">
                   <span className="font-mono text-slate-300">{d.domain_name}</span>
-                  <select className={input} value={String(d.relayhost || '0')} onChange={(e) => run(() => send('PUT', `/api/mailcow/domains/${d.domain_name}/relayhost`, { id: +e.target.value }), reload)}>
-                    <option value="0">send directly</option>
-                    {rl.map((h) => <option key={h.id} value={String(h.id)}>via #{h.id} {h.hostname}</option>)}
-                  </select>
+                  <Select compact className="w-56" value={String(d.relayhost || '0')} onChange={(v) => run(() => send('PUT', `/api/mailcow/domains/${d.domain_name}/relayhost`, { id: +v }), reload)}
+                    options={[{ value: '0', label: 'send directly' }, ...rl.map((h) => ({ value: String(h.id), label: `via #${h.id} ${h.hostname}` }))]} />
                 </div>
               ))}
             </div>
@@ -370,7 +367,7 @@ export function GuardDogPanel() {
     <div className="space-y-6">
       {toast}
       <Header title="Guard Dog (mailcow netfilter)" sub="mailcow's own ban engine, and how it works together with CrowdSec"
-        action={<button onClick={reload} className={`${btn} border border-slate-700 text-slate-300 hover:bg-slate-800`}><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>} />
+        action={<button onClick={() => run(async () => { await send('POST', '/api/mailcow/netfilter-sync'); return 'Synced with netfilter'; }, reload)} className={`${btn} border border-slate-700 text-slate-300 hover:bg-slate-800`}><RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Sync now</button>} />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Tile label="Active bans" value={String(active.length)} sub="netfilter, right now" tone={active.length ? 'rose' : 'emerald'} icon={<Dog className="w-4 h-4" />} />
         <Tile label="Permanent" value={String(perm.length)} sub="from the blacklist" tone="amber" icon={<Lock className="w-4 h-4" />} />
@@ -427,6 +424,8 @@ export function GuardDogPanel() {
         </tbody></table>
       </Card>
 
+      <NetfilterLog />
+
       <Card title="Ban settings" icon={<Gauge className="w-4 h-4 text-amber-300" />}>
         <div className="grid sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
           {num('max_attempts', 'Failures before a ban', 'count')}
@@ -441,8 +440,28 @@ export function GuardDogPanel() {
           <Field label="Whitelist (one per line)"><textarea className={`${input} h-24 font-mono`} value={s.whitelist || ''} onChange={(e) => setS({ ...s, whitelist: e.target.value })} /></Field>
           <Field label="Blacklist (permanent bans)"><textarea className={`${input} h-24 font-mono`} value={s.blacklist || ''} onChange={(e) => setS({ ...s, blacklist: e.target.value })} /></Field>
         </div>
-        <button onClick={() => run(() => send('PUT', '/api/mailcow/netfilter/settings', { ...s, ban_time_increment: on(s.ban_time_increment) }), reload)} className={`${btn} bg-indigo-600 hover:bg-indigo-500 text-white`}><Save className="w-3.5 h-3.5" /> Save settings</button>
+        <button onClick={() => run(() => send('PUT', '/api/mailcow/netfilter/settings', { ban_time: Number(s.ban_time), max_ban_time: Number(s.max_ban_time), ban_time_increment: on(s.ban_time_increment), max_attempts: Number(s.max_attempts), retry_window: Number(s.retry_window), netban_ipv4: Number(s.netban_ipv4), netban_ipv6: Number(s.netban_ipv6), whitelist: s.whitelist || '', blacklist: s.blacklist || '' }), reload)} className={`${btn} bg-indigo-600 hover:bg-indigo-500 text-white`}><Save className="w-3.5 h-3.5" /> Save settings</button>
       </Card>
     </div>
+  );
+}
+
+function NetfilterLog() {
+  const { data } = useApi<{ time: number | string; priority: string; message: string }[] | Record<string, never>>('/api/mailcow/logs/netfilter?count=40');
+  const rows = list<{ time: number | string; priority: string; message: string }>(data);
+  return (
+    <Card title="Recent netfilter activity" icon={<Dog className="w-4 h-4 text-orange-300" />}>
+      {!rows.length ? <p className="text-sm text-slate-500">No recent entries.</p> : (
+        <div className="max-h-64 overflow-y-auto space-y-1 font-mono text-[11px]">
+          {rows.map((r, i) => (
+            <div key={i} className="flex gap-3">
+              <span className="text-slate-500 shrink-0">{new Date(Number(r.time) * 1000).toLocaleString()}</span>
+              <span className={/crit|warn/i.test(r.priority) ? 'text-amber-300' : 'text-slate-300'}>{r.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-slate-500">netfilter never bans private (LAN) addresses, and CrowdSec often bans an attacker first, so an empty ban list on a quiet day is normal.</p>
+    </Card>
   );
 }

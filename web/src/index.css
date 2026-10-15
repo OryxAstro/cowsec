@@ -590,7 +590,7 @@ main .bg-slate-950\/80 {
 [data-mode="light"] [class*="bg-blue-500"]:not([class*="bg-blue-500/"]),
 [data-mode="light"] [class*="bg-blue-600"]:not([class*="bg-blue-600/"]),
 [data-mode="light"] [class*="bg-blue-700"]:not([class*="bg-blue-700/"]),
-[data-mode="light"] [class*="bg-gradient-to"][class*="from-indigo-6"],
+[data-mode="light"] [class*="bg-gradient-to"]:not([class*="/"]),
 [data-mode="light"] [class*="bg-gradient-to"][class*="from-emerald-6"],
 [data-mode="light"] .cowsec-nav-active {
   --color-white: #ffffff;
@@ -701,3 +701,7 @@ main .bg-slate-950\/80 {
 }
 :root { --map-node: #0b1226; --map-ink: #f1f5f9; --map-sub: #94a3b8; }
 [data-mode="light"] { --map-node: #f8f9fb; --map-ink: #0f172a; --map-sub: #475569; }
+
+/* the mascot's tile follows the theme */
+:root { --mascot-tile-a: #0b1530; --mascot-tile-b: #050a18; --mascot-rim: rgba(255, 255, 255, 0.08); }
+[data-mode="light"] { --mascot-tile-a: #ffffff; --mascot-tile-b: #e9edf5; --mascot-rim: rgba(15, 23, 42, 0.12); }

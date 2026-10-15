@@ -264,7 +264,7 @@ function MascotPicker() {
   const today = seasonalLook();
   return (
     <div className="space-y-4">
-      <p className="text-slate-400">Choose how the cow on your console dresses. "Follow the calendar" swaps her hat and collar charm for the season; the choice is saved in this browser.</p>
+      <p className="text-slate-400">Choose how <b className="text-white">Bessie the Bouncer</b>, CowSec's head of security, dresses. "Follow the calendar" swaps her hat and collar charm for the season; the choice is saved in this browser.</p>
       <button onClick={() => pick('auto')}
         className={`w-full flex items-center gap-3 rounded-xl border p-3 text-left cursor-pointer ${pref === 'auto' ? 'border-sky-400/50 bg-sky-500/10' : 'border-slate-800 hover:border-slate-700'}`}>
         <CowSecLogo look={today} className="w-12 h-12" />

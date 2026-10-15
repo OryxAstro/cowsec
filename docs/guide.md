@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/setup-flow.svg" alt="CowSec setup: checks, protection, certificates, access, account, install" width="100%">
+  <a href="assets/full/setup-flow.webp" title="Open full size"><img src="assets/setup-flow.svg" alt="CowSec setup: checks, protection, certificates, access, account, install" width="100%"></a>
 </p>
 
 # Installation walkthrough
@@ -190,7 +190,14 @@ The first time, scan the QR code with an authenticator app (Microsoft Authentica
 
 ## 11. A tour of the console
 
-The sidebar has four groups: **The Barn** (the host), **Fence & Gate** (protection), **The Farm** (mailcow management, see [Managing mailcow](mailcow.md)) and **Herd Watch** (detection).
+The sidebar has five groups, each of which collapses:
+- **The Barn:** the host.
+- **Fence & Gate:** protection.
+- **The Farm:** day-to-day mailcow management. See [Managing mailcow](mailcow.md).
+- **Farm Office:** mail policy.
+- **Herd Watch:** detection.
+
+Help and About sit at the bottom.
 
 ### Barn Status
 
@@ -205,7 +212,12 @@ Health at a glance:
 
 It also has safe one-click service actions.
 
-<p align="center"><img src="img/console/host.webp" alt="Barn Status: host health" width="900"></p>
+The **Pasture map** at the top shows live traffic:
+- **Path:** from the internet, through the firewall gate and the OpenResty edge, to mailcow's web and mail ports.
+- **Lines:** they speed up and thicken with traffic, and the gate sparks while it drops packets.
+- **Boxes:** each one shows running totals, such as addresses banned, packets dropped, web requests stopped and mail log lines read.
+
+<p align="center"><img src="img/console/host.webp" alt="Barn Status: host health and the pasture map" width="900"></p>
 
 ### Fresh Hay (Updates)
 
@@ -238,6 +250,21 @@ Every AppSec rule and CVE virtual patch, with filters and one-click toggles.
 
 <p align="center"><img src="img/console/appsec-waf.webp" alt="AppSec WAF rules" width="900"></p>
 
+### Guard Dog (mailcow netfilter)
+
+mailcow ships its own ban engine, netfilter. This page shows:
+- its active and permanent bans;
+- its recent activity;
+- its thresholds, which you can edit.
+
+It also sets how netfilter works with CrowdSec:
+- **Side by side:** both ban independently.
+- **CrowdSec enforces:** netfilter only detects, and its bans become CrowdSec decisions, so every ban appears in one list and follows your ban ladder.
+
+Either way, your trusted networks are kept in netfilter's whitelist, and lifting a ban in **Banned from the Herd** lifts it in netfilter too. See [Managing mailcow](mailcow.md#guard-dog-mailcow-netfilter).
+
+<p align="center"><img src="img/console/netfilter.webp" alt="Guard Dog: mailcow netfilter and CrowdSec" width="900"></p>
+
 ### Trusted Herd (Allowlists)
 
 Your own allowlist, applied instantly by CrowdSec's API and also filtering community blocklists, plus a read-only view of the whitelist parsers.
@@ -248,7 +275,7 @@ Your own allowlist, applied instantly by CrowdSec's API and also filtering commu
 
 These three pages cover:
 - **Moo Alerts:** recent alerts.
-- **Feed Store:** the hub, where you install, upgrade or remove collections, parsers, scenarios and WAF rules.
+- **Feed Store:** the hub. Install, upgrade or remove collections, parsers, scenarios and postoverflows. It only lists items that matter on a mail server (mail, web server, SSH, Linux, firewall, log enrichment), though anything already installed always shows. WAF rules are under **Electric Fence**.
 - **Bouncers & Herd Dogs:** registered bouncers and machines.
 
 <p align="center"><img src="img/console/alerts.webp" alt="Alerts" width="900"></p>
@@ -260,6 +287,39 @@ These three pages cover:
 Your account, authenticator reset and the sign-in activity log.
 
 <p align="center"><img src="img/console/settings.webp" alt="Settings" width="720"></p>
+
+### Bessie the Bouncer
+
+CowSec's mascot is **Bessie the Bouncer**, head of security. She dresses for the season. Each look is a hat plus a collar charm, kept inside the shield so she reads at any size:
+- a security cap every day;
+- a party hat at New Year;
+- a love lock for Valentine's;
+- bunny ears at Easter;
+- sunglasses in July and August;
+- a witch's hat at Halloween;
+- a Santa hat in December.
+
+In **Settings → Mascot** you can follow the calendar or pin any look. The choice is saved in your browser.
+
+<p align="center"><img src="img/console/mascot.webp" alt="Settings: Bessie's wardrobe" width="760"></p>
+
+### Themes
+
+The palette menu in the header has six dark themes and four soft pastel light themes:
+- **Dark:** Midnight Pasture, Alpine Dairy, Twilight Moo, Clover Night, Harvest Barn, Milky Way.
+- **Light:** Strawberry Milk, Mint Meadow, Lavender Field, Buttercup Sky.
+
+<p align="center"><img src="img/console/host-light.webp" alt="Barn Status in the Mint Meadow light theme" width="900"></p>
+
+### Farmer's Almanac and About
+
+**Farmer's Almanac** is the in-app manual, knowledge base and troubleshooting guide. It is searchable and works offline. **About** shows:
+- the version;
+- the software CowSec is built on, with the installed versions;
+- credits.
+
+<p align="center"><img src="img/console/help.webp" alt="Farmer's Almanac" width="900"></p>
+<p align="center"><img src="img/console/about.webp" alt="About CowSec" width="900"></p>
 
 ---
 

@@ -91,7 +91,7 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 Run mailcow's day-to-day admin from CowSec, behind its 2FA sign-in and audit log:
 - domains and mailboxes, including quotas, password resets and last logins;
 - aliases and catch-alls;
-- DKIM keys with ready-to-paste DNS records;
+- a live DNS checklist per domain (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover) with copy buttons and a zone-file download;
 - the quarantine, the mail queue (retry / hold / delete) and mailcow's logs;
 - domain admins and their permissions, rate limits, TLS policies, relay hosts and transports;
 - mailcow's own **netfilter** ban engine, side by side with CrowdSec or with CrowdSec enforcing its bans.
@@ -105,13 +105,13 @@ It uses mailcow's own API, restricted to localhost. [Learn more →](docs/mailco
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/architecture.svg" alt="CowSec architecture" width="100%">
+  <a href="docs/assets/full/architecture.webp" title="Open full size"><img src="docs/assets/architecture.svg" alt="CowSec architecture" width="100%"></a>
 </p>
 
 Everything sits alongside mailcow. CowSec only uses mailcow's supported settings (`mailcow.conf`, `data/conf/postfix/extra.cf`, `data/assets/ssl`), so `./update.sh` keeps working. See [architecture.md](docs/architecture.md).
 
 <p align="center">
-  <img src="docs/assets/ban-ladder.svg" alt="Escalating ban ladder" width="100%">
+  <a href="docs/assets/full/ban-ladder.webp" title="Open full size"><img src="docs/assets/ban-ladder.svg" alt="Escalating ban ladder" width="100%"></a>
 </p>
 
 ## Quick start
@@ -141,7 +141,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | mailcow management | |
 |---|---|
 | <img src="docs/img/mail/farm.webp" alt="Farmhouse"> | <img src="docs/img/mail/mailboxes.webp" alt="Mailboxes"> |
-| <img src="docs/img/mail/dkim.webp" alt="DKIM"> | <img src="docs/img/mail/queue.webp" alt="Mail queue"> |
+| <img src="docs/img/mail/dns-records.webp" alt="DNS records checklist"> | <img src="docs/img/mail/queue.webp" alt="Mail queue"> |
 | <img src="docs/img/mail/farmhands.webp" alt="Domain admins"> | <img src="docs/img/console/netfilter.webp" alt="mailcow netfilter and CrowdSec"> |
 
 </details>

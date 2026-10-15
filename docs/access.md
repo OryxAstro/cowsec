@@ -2,7 +2,7 @@
 
 # Reaching the console
 
-<p align="center"><img src="assets/access-modes.svg" alt="The four access modes" width="100%"></p>
+<p align="center"><a href="assets/full/access-modes.webp" title="Open full size"><img src="assets/access-modes.svg" alt="The four access modes" width="100%"></a></p>
 
 The console itself always listens on `127.0.0.1:8090`. How it is published depends on the access mode. Sign-in always needs a password **and** a second factor (TOTP or Duo), is rate-limited per IP and per user, and every change is written to the audit log.
 

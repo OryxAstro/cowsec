@@ -2,7 +2,7 @@
 
 # Certificates
 
-<p align="center"><img src="assets/cert-flow.svg" alt="DNS-01 certificate flow" width="100%"></p>
+<p align="center"><a href="assets/full/cert-flow.webp" title="Open full size"><img src="assets/cert-flow.svg" alt="DNS-01 certificate flow" width="100%"></a></p>
 
 CowSec can leave certificates to mailcow (its built-in Let's Encrypt, HTTP-01 on port 80) or issue them itself with **DNS-01**.
 

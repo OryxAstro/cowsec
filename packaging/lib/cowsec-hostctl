@@ -631,7 +631,7 @@ def main():
             log("%s netfilter-coordinate %s" % (peer, args[0]))
             print(json.dumps(se.netfilter_coordinate(args[0], args[1] == "1", se.Runner(echo=False)))); return
         if verb == "netfilter-sync" and not args:
-            se.netfilter_sync(); return
+            print(json.dumps(se.netfilter_sync())); return
         if verb == "certs-renew" and not args:
             se.certs_renew(se.Runner(echo=True)); return
     except (ValueError, RuntimeError, se.StepError) as ex:

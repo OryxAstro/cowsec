@@ -2,7 +2,7 @@
 
 # Managing mailcow from CowSec
 
-<p align="center"><img src="assets/mailcow-flow.svg" alt="How CowSec manages mailcow through its API" width="100%"></p>
+<p align="center"><a href="assets/full/mailcow-flow.webp" title="Open full size"><img src="assets/mailcow-flow.svg" alt="How CowSec manages mailcow through its API" width="100%"></a></p>
 
 CowSec can run the day-to-day mailcow administration itself, so you rarely need mailcow's admin UI. With that UI limited to your LAN, or closed altogether, admin access goes through CowSec's 2FA sign-in, audit log and WAF.
 
@@ -11,10 +11,9 @@ The pages live under **The Farm · Mail** in the sidebar.
 | Page | What you can do |
 |---|---|
 | **Farmhouse** | Container health, mailcow version, storage, queue and quarantine at a glance |
-| **Paddocks (Domains)** | Add, enable/disable and delete domains; set mailbox, alias and quota limits |
+| **Paddocks (Domains)** | Add, edit, enable/disable and delete domains; limits, quotas, relaying; a live **DNS records** checklist with DKIM |
 | **Stalls (Mailboxes)** | Add mailboxes with a generated password, reset passwords, enable/disable, delete; quotas and last logins |
 | **Ear Tags (Aliases)** | Forwarding addresses and catch-alls (`@example.org`) |
-| **Brand Irons (DKIM)** | See each domain's DKIM key and the exact DNS record to publish, or generate one |
 | **Quarantine Pen** | Release or delete messages rspamd held back |
 | **Milk Queue (Mail queue)** | See stuck outgoing mail with the reason, retry, hold or delete |
 | **Farm Log (Logs)** | postfix, dovecot, rspamd, SOGo, netfilter, ACME and more, with a filter |
@@ -51,27 +50,48 @@ This step does four things:
 
 ### Paddocks (Domains)
 
-Add a domain with its limits. mailcow creates a DKIM key for it automatically.
+Add or edit a domain with its limits, quotas, tags, the global address list and backup-MX relaying. mailcow creates a DKIM key for new domains automatically.
 
-<p align="center"><img src="img/mail/domain-new.webp" alt="Adding a domain" width="900"></p>
 <p align="center"><img src="img/mail/domains.webp" alt="Domain list with usage" width="900"></p>
+
+#### DNS records
+
+The **DNS** button on each domain opens its checklist. It lists every record mailcow needs, with what DNS answers right now:
+- the server's address and reverse DNS (PTR);
+- TLSA for DANE (optional);
+- MX, SPF and DMARC;
+- the DKIM key;
+- autodiscover/autoconfig and SRV records for mail clients (optional).
+
+Each value has a copy button. If a domain has no DKIM key yet, you can generate one there. The whole set downloads as a zone file. The expected TLSA value is calculated from the certificate Postfix actually presents.
+
+<p align="center"><img src="img/mail/dns-records.webp" alt="DNS records for a domain, checked live" width="900"></p>
 
 ### Stalls (Mailboxes)
 
-New mailboxes get a strong generated password, which you can copy before saving. The key button sets a new password at any time.
+The mailbox form has every option mailcow offers:
+- the full name, a generated password, and a forced password change at next sign-in;
+- quota and tags;
+- tagged-mail handling (`me+news@`);
+- quarantine notifications and their category;
+- required TLS, incoming and outgoing;
+- which protocols may sign in: IMAP, POP3, SMTP, Sieve, ActiveSync and DAV;
+- webmail access and a relay host.
+
+**Edit** opens the same form, pre-filled. The key button sets a new password at any time.
 
 <p align="center"><img src="img/mail/mailbox-new.webp" alt="Adding a mailbox" width="900"></p>
 <p align="center"><img src="img/mail/mailboxes.webp" alt="Mailbox list with quotas and last logins" width="900"></p>
 
 ### Ear Tags (Aliases)
 
+An alias can deliver to a list of addresses, silently discard mail, or act as a spam or not-spam training address. You can also choose:
+- whether the people it delivers to can send as it in webmail;
+- whether it only accepts mail from this server's own users;
+- private and public notes.
+
+<p align="center"><img src="img/mail/alias-new.webp" alt="Adding an alias" width="900"></p>
 <p align="center"><img src="img/mail/aliases.webp" alt="Aliases" width="900"></p>
-
-### Brand Irons (DKIM)
-
-Copy the record name and value straight into your DNS provider.
-
-<p align="center"><img src="img/mail/dkim.webp" alt="DKIM keys and DNS records" width="900"></p>
 
 ### Milk Queue and Quarantine Pen
 

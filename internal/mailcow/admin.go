@@ -30,6 +30,7 @@ var (
 )
 
 func mountAdmin(r chi.Router, c *Client, o Options) {
+	c.dnsRoutes(r)
 	change := func(w http.ResponseWriter, path string, body interface{}) {
 		msgs, err := c.Change(path, body)
 		if err != nil {
@@ -354,6 +355,17 @@ func mountAdmin(r chi.Router, c *Client, o Options) {
 			return
 		}
 		change(w, "edit/fail2ban", map[string]interface{}{"items": []string{n}, "attr": map[string]interface{}{"action": action}})
+	})
+	r.Post("/netfilter-sync", func(w http.ResponseWriter, _ *http.Request) {
+		st, err := gate("netfilter-sync")
+		if err != nil {
+			fail(w, http.StatusBadGateway, err)
+			return
+		}
+		if len(st) == 0 {
+			st = json.RawMessage(`{"status":"ok"}`)
+		}
+		writeRaw(w, st)
 	})
 	r.Put("/netfilter/coordination", func(w http.ResponseWriter, req *http.Request) {
 		var in struct {

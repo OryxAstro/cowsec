@@ -13,7 +13,7 @@ Settings, accounts, the ban policy and certificates are kept.
 
 ## Updating CrowdSec and the bouncers
 
-<p align="center"><img src="assets/upgrade-flow.svg" alt="Safe upgrade steps" width="100%"></p>
+<p align="center"><a href="assets/full/upgrade-flow.webp" title="Open full size"><img src="assets/upgrade-flow.svg" alt="Safe upgrade steps" width="100%"></a></p>
 
 <p align="center"><img src="img/updates/ready.webp" alt="Fresh Hay: the updates page" width="900"></p>
 

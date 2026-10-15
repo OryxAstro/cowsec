@@ -141,71 +141,34 @@ func mount(r chi.Router, c *Client) {
 	// ---- domains
 	r.Get("/domains", get("get/domain/all", true))
 	r.Post("/domains", func(w http.ResponseWriter, req *http.Request) {
-		var in struct {
-			Domain      string `json:"domain"`
-			Description string `json:"description"`
-			Mailboxes   *int   `json:"mailboxes"`
-			Aliases     *int   `json:"aliases"`
-			DefQuota    *int   `json:"defquota"`
-			MaxQuota    *int   `json:"maxquota"`
-			Quota       *int   `json:"quota"`
-			Active      bool   `json:"active"`
-		}
-		if err := decode(req, &in); err != nil || !reDomain.MatchString(in.Domain) {
+		var in domainIn
+		if err := decode(req, &in); err != nil || in.Domain == nil || !reDomain.MatchString(*in.Domain) {
 			fail(w, 400, fmt.Errorf("enter a valid domain name"))
 			return
 		}
-		body := map[string]interface{}{"domain": strings.ToLower(in.Domain), "description": trim(in.Description, 255), "active": flag(in.Active),
-			"restart_sogo": "1", "rl_value": "", "rl_frame": "s"}
-		for _, f := range []struct {
-			n   string
-			v   *int
-			max int
-			k   string
-		}{{"mailboxes", in.Mailboxes, 100000, "mailboxes"}, {"aliases", in.Aliases, 100000, "aliases"},
-			{"default mailbox quota", in.DefQuota, 10485760, "defquota"}, {"maximum mailbox quota", in.MaxQuota, 10485760, "maxquota"},
-			{"domain quota", in.Quota, 104857600, "quota"}} {
-			if err := num(f.n, f.v, f.max, body, f.k); err != nil {
-				fail(w, 400, err)
-				return
-			}
+		body, err := in.attrs()
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		body["domain"] = strings.ToLower(*in.Domain)
+		body["restart_sogo"] = "1"
+		if _, ok := body["active"]; !ok {
+			body["active"] = "1"
 		}
 		change(w, "add/domain", body)
 	})
 	r.Patch("/domains/{domain}", func(w http.ResponseWriter, req *http.Request) {
 		d := param(req, "domain")
-		var in struct {
-			Description *string `json:"description"`
-			Active      *bool   `json:"active"`
-			Mailboxes   *int    `json:"mailboxes"`
-			Aliases     *int    `json:"aliases"`
-			DefQuota    *int    `json:"defquota"`
-			MaxQuota    *int    `json:"maxquota"`
-			Quota       *int    `json:"quota"`
-		}
+		var in domainIn
 		if err := decode(req, &in); err != nil || !reDomain.MatchString(d) {
 			fail(w, 400, fmt.Errorf("invalid request"))
 			return
 		}
-		attr := map[string]interface{}{}
-		if in.Description != nil {
-			attr["description"] = trim(*in.Description, 255)
-		}
-		if in.Active != nil {
-			attr["active"] = flag(*in.Active)
-		}
-		for _, f := range []struct {
-			n   string
-			v   *int
-			max int
-			k   string
-		}{{"mailboxes", in.Mailboxes, 100000, "mailboxes"}, {"aliases", in.Aliases, 100000, "aliases"},
-			{"default mailbox quota", in.DefQuota, 10485760, "defquota"}, {"maximum mailbox quota", in.MaxQuota, 10485760, "maxquota"},
-			{"domain quota", in.Quota, 104857600, "quota"}} {
-			if err := num(f.n, f.v, f.max, attr, f.k); err != nil {
-				fail(w, 400, err)
-				return
-			}
+		attr, err := in.attrs()
+		if err != nil {
+			fail(w, 400, err)
+			return
 		}
 		change(w, "edit/domain", map[string]interface{}{"items": []string{d}, "attr": attr})
 	})
@@ -231,59 +194,62 @@ func mount(r chi.Router, c *Client) {
 		}
 		get(path, true)(w, req)
 	})
-	r.Post("/mailboxes", func(w http.ResponseWriter, req *http.Request) {
-		var in struct {
-			LocalPart string `json:"local_part"`
-			Domain    string `json:"domain"`
-			Name      string `json:"name"`
-			Quota     *int   `json:"quota"`
-			Password  string `json:"password"`
-			Active    bool   `json:"active"`
+	r.Get("/mailboxes/{username}", func(w http.ResponseWriter, req *http.Request) {
+		u := param(req, "username")
+		if !reEmail.MatchString(u) {
+			fail(w, 400, fmt.Errorf("invalid mailbox"))
+			return
 		}
-		if err := decode(req, &in); err != nil || !reLocalPart.MatchString(in.LocalPart) || !reDomain.MatchString(in.Domain) {
+		get("get/mailbox/"+u, false)(w, req)
+	})
+	r.Post("/mailboxes", func(w http.ResponseWriter, req *http.Request) {
+		var in mailboxIn
+		if err := decode(req, &in); err != nil || in.LocalPart == nil || !reLocalPart.MatchString(*in.LocalPart) || in.Domain == nil || !reDomain.MatchString(*in.Domain) {
 			fail(w, 400, fmt.Errorf("enter a valid address"))
 			return
 		}
-		if len(in.Password) < 10 || len(in.Password) > 256 {
-			fail(w, 400, fmt.Errorf("password must be 10-256 characters"))
+		if in.Password == nil {
+			fail(w, 400, fmt.Errorf("set a password"))
 			return
 		}
-		body := map[string]interface{}{"local_part": in.LocalPart, "domain": strings.ToLower(in.Domain), "name": trim(in.Name, 255),
-			"password": in.Password, "password2": in.Password, "active": flag(in.Active), "force_pw_update": "0", "tls_enforce_in": "1", "tls_enforce_out": "1"}
-		if err := num("quota", in.Quota, 10485760, body, "quota"); err != nil {
+		body, err := in.attrs()
+		if err != nil {
 			fail(w, 400, err)
 			return
+		}
+		body["local_part"], body["domain"] = *in.LocalPart, strings.ToLower(*in.Domain)
+		if _, ok := body["active"]; !ok {
+			body["active"] = "1"
 		}
 		change(w, "add/mailbox", body)
 	})
 	r.Patch("/mailboxes/{username}", func(w http.ResponseWriter, req *http.Request) {
 		u := param(req, "username")
-		var in struct {
-			Name     *string `json:"name"`
-			Active   *bool   `json:"active"`
-			Quota    *int    `json:"quota"`
-			Password *string `json:"password"`
-		}
+		var in mailboxIn
 		if err := decode(req, &in); err != nil || !reEmail.MatchString(u) {
 			fail(w, 400, fmt.Errorf("invalid request"))
 			return
 		}
-		attr := map[string]interface{}{}
-		if in.Name != nil {
-			attr["name"] = trim(*in.Name, 255)
-		}
-		if in.Active != nil {
-			attr["active"] = flag(*in.Active)
-		}
-		if in.Password != nil {
-			if len(*in.Password) < 10 || len(*in.Password) > 256 {
-				fail(w, 400, fmt.Errorf("password must be 10-256 characters"))
-				return
-			}
-			attr["password"], attr["password2"] = *in.Password, *in.Password
-		}
-		if err := num("quota", in.Quota, 10485760, attr, "quota"); err != nil {
+		attr, err := in.attrs()
+		if err != nil {
 			fail(w, 400, err)
+			return
+		}
+		// quarantine settings have their own endpoints in mailcow
+		var msgs []string
+		for _, k := range []string{"quarantine_notification", "quarantine_category"} {
+			if v, ok := attr[k]; ok {
+				m, err := c.Change("edit/"+k, map[string]interface{}{"items": []string{u}, "attr": map[string]interface{}{k: v}})
+				if err != nil {
+					fail(w, 400, err)
+					return
+				}
+				msgs = append(msgs, m...)
+				delete(attr, k)
+			}
+		}
+		if len(attr) == 0 {
+			writeJSON(w, 200, map[string]interface{}{"status": "ok", "messages": msgs})
 			return
 		}
 		change(w, "edit/mailbox", map[string]interface{}{"items": []string{u}, "attr": attr})
@@ -300,43 +266,33 @@ func mount(r chi.Router, c *Client) {
 	// ---- aliases
 	r.Get("/aliases", get("get/alias/all", true))
 	r.Post("/aliases", func(w http.ResponseWriter, req *http.Request) {
-		var in struct {
-			Address string `json:"address"`
-			Goto    string `json:"goto"`
-			Active  bool   `json:"active"`
-		}
-		if err := decode(req, &in); err != nil || !(reEmail.MatchString(in.Address) || strings.HasPrefix(in.Address, "@") && reDomain.MatchString(in.Address[1:])) {
+		var in aliasIn
+		if err := decode(req, &in); err != nil || in.Address == nil || !(reEmail.MatchString(*in.Address) || strings.HasPrefix(*in.Address, "@") && reDomain.MatchString((*in.Address)[1:])) {
 			fail(w, 400, fmt.Errorf("enter an alias address (or @domain for a catch-all)"))
 			return
 		}
-		targets, err := gotoList(in.Goto)
+		body, err := in.attrs()
 		if err != nil {
 			fail(w, 400, err)
 			return
 		}
-		change(w, "add/alias", map[string]interface{}{"address": strings.ToLower(in.Address), "goto": targets, "active": flag(in.Active)})
+		body["address"] = strings.ToLower(*in.Address)
+		if _, ok := body["active"]; !ok {
+			body["active"] = "1"
+		}
+		change(w, "add/alias", body)
 	})
 	r.Patch("/aliases/{id}", func(w http.ResponseWriter, req *http.Request) {
 		id := param(req, "id")
-		var in struct {
-			Goto   *string `json:"goto"`
-			Active *bool   `json:"active"`
-		}
+		var in aliasIn
 		if _, err := strconv.Atoi(id); err != nil || decode(req, &in) != nil {
 			fail(w, 400, fmt.Errorf("invalid request"))
 			return
 		}
-		attr := map[string]interface{}{}
-		if in.Active != nil {
-			attr["active"] = flag(*in.Active)
-		}
-		if in.Goto != nil {
-			t, err := gotoList(*in.Goto)
-			if err != nil {
-				fail(w, 400, err)
-				return
-			}
-			attr["goto"] = t
+		attr, err := in.attrs()
+		if err != nil {
+			fail(w, 400, err)
+			return
 		}
 		change(w, "edit/alias", map[string]interface{}{"items": []string{id}, "attr": attr})
 	})

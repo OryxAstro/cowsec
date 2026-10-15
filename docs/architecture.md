@@ -2,7 +2,7 @@
 
 # How it fits together
 
-<p align="center"><img src="assets/architecture.svg" alt="CowSec architecture" width="100%"></p>
+<p align="center"><a href="assets/full/architecture.webp" title="Open full size"><img src="assets/architecture.svg" alt="CowSec architecture" width="100%"></a></p>
 
 | Component | Language | Role |
 |---|---|---|

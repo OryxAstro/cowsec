@@ -316,6 +316,9 @@ func Routes(cr chi.Router, t *Target) {
 		enabledCount := 0
 		for _, itm := range items {
 			isEnabled := strings.Contains(itm.Status, "enabled")
+			if !isEnabled && !RelevantHubItem(itm) {
+				continue
+			}
 			if isEnabled {
 				enabledCount++
 			}
@@ -341,7 +344,7 @@ func Routes(cr chi.Router, t *Target) {
 			"total":        len(filtered),
 			"totalCatalog": len(items),
 			"enabledCount": enabledCount,
-			"counts":       counts,
+			"counts":       t.relevantCounts(counts),
 		})
 	})
 

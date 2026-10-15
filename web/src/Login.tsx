@@ -240,7 +240,7 @@ export default function Login({ onSignedIn, notice }: { onSignedIn: (id: Identit
                 <div>
                   <h2 className="text-lg font-bold text-white">Open the barn door</h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {config?.ldap ? `Use your CowSec account, or a directory account in the ${config.group} herd.` : 'Use your CowSec account to enter the barn.'}
+                    {config?.ldap ? 'Use your CowSec account or your directory account to enter the barn.' : 'Use your CowSec account to enter the barn.'}
                   </p>
                 </div>
                 <label className="block">
