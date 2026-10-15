@@ -36,6 +36,7 @@ LEGO_VERSION = "5.5.2"
 LEGO_SHA256 = "2a35505089e7772c92e1e9ac144df91151ef2eca8568630db0ff91fca06d9bef"
 LEGO_URL = "https://github.com/go-acme/lego/releases/download/v{v}/lego_v{v}_linux_amd64.tar.gz".format(v=LEGO_VERSION)
 LEGO_BIN = os.path.join(LIB_DIR, "lego")
+DEFAULT_RESOLVERS = ["1.1.1.1:53", "9.9.9.9:53"]
 
 # Lua HTTP client the OpenResty bouncer needs. Its package script fetches it with opm and
 # ignores failures, so CowSec checks and falls back to the pinned GitHub release.
@@ -421,9 +422,12 @@ def validate_config(c):
         doms = certs.get("domains") or []
         if not doms or not all(re.fullmatch(r"[a-z0-9.-]+\.[a-z]{2,}", d) for d in doms):
             raise StepError("choose at least one domain for certificates")
+        resolvers = certs.get("resolvers") or DEFAULT_RESOLVERS
+        if not all(isinstance(x, str) and re.fullmatch(r"[0-9a-fA-F.:\[\]]+:\d+", x) for x in resolvers):
+            raise StepError("resolvers must look like 1.1.1.1:53")
         out["certs"] = {"mode": "dns01", "provider": prov, "credentials": creds, "email": email, "domains": sorted(set(doms)),
                         "perDomain": bool(certs.get("perDomain", True)), "wildcard": bool(certs.get("wildcard", True)),
-                        "staging": bool(certs.get("staging", False))}
+                        "staging": bool(certs.get("staging", False)), "resolvers": resolvers}
     acc = c.get("access") or {"mode": "local"}
     mode = acc.get("mode")
     if mode not in ("local", "lan", "wan", "tunnel"):
@@ -697,6 +701,11 @@ def lego_env(c):
 def issue(name, domains, c, r):
     args = [ensure_lego(r), "run", "--path", ACME_DIR, "--cert.name", name, "--accept-tos", "--email", c["certs"]["email"],
             "--dns", c["certs"]["provider"], "--key-type", "EC256", "--no-random-sleep"]
+    # Check propagation against the zone's authoritative nameservers, not the local resolver:
+    # home routers, Pi-hole, Blocky etc. cache the earlier "no such record" answer.
+    args += ["--dns.propagation.disable-rns"]
+    for res in c["certs"].get("resolvers") or DEFAULT_RESOLVERS:
+        args += ["--dns.resolvers", res]
     if c["certs"].get("staging"):
         args += ["--server", "https://acme-staging-v02.api.letsencrypt.org/directory"]
     for d in domains:

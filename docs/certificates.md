@@ -33,6 +33,10 @@ Create the narrowest credential your provider allows. For Cloudflare, an **API t
 
 Use **Test run (staging)** the first time: it proves the credentials and DNS work without touching Let's Encrypt's production rate limits. The certificates it issues are untrusted, so re-run setup without it afterwards.
 
+## DNS checks
+
+lego confirms the challenge record at your domain's **authoritative** nameservers and uses public resolvers (`1.1.1.1`, `9.9.9.9`) for lookups. It deliberately ignores the server's own resolver, because routers, Pi-hole and similar caches keep an earlier "no such record" answer and stall the check. If outbound DNS to those resolvers is blocked, set `"resolvers": ["<your-resolver>:53"]` under `certs` in a headless config.
+
 ## Renewal
 
 `cowsec-certs.timer` runs daily. It:
