@@ -32,6 +32,9 @@ type Target struct {
 	hubCacheMu   sync.RWMutex
 	hubCache     map[string][]ItemInfo
 	hubCacheTime time.Time
+
+	// OnUnban, when set, runs after a ban on an IP or range is lifted (e.g. to lift it in mailcow's netfilter too).
+	OnUnban func(value string)
 }
 
 // New returns the local CrowdSec target.
@@ -47,6 +50,9 @@ func (t *Target) cscli(args ...string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// Gate runs one allowlisted verb through the host helper (for other packages).
+func (t *Target) Gate(verb string, args ...string) ([]byte, error) { return t.gate(verb, args...) }
 
 // gate runs one allowlisted verb through the host helper.
 func (t *Target) gate(verb string, args ...string) ([]byte, error) {

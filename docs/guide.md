@@ -4,24 +4,24 @@
 
 # Installation walkthrough
 
-This guide follows a real installation on a fresh Debian 12 server running a stock mailcow-dockerized, from the package to a protected server with the console signed in. Every screenshot comes from that run. Domains and addresses are replaced with `example.com` and `192.0.2.x`.
+This guide follows real installations: one on a fresh Debian 12 server already running a stock mailcow-dockerized, and one on a bare Debian 12 server where CowSec installed mailcow too. It goes from the package to a protected server with the console signed in. Every screenshot comes from that run. Domains and addresses are replaced with `example.com` and `192.0.2.x`.
 
 > [!TIP]
-> **Bare metal, VPS or VM: it all works the same.** CowSec needs Debian 11–13 or Ubuntu 22.04/24.04 (amd64), Docker with Compose v2, and mailcow already installed. On KVM guests (Proxmox and most VPSs) it can also sync the clock to the hypervisor.
+> **Bare metal, VPS or VM: it all works the same.** CowSec needs Debian 11–13 or Ubuntu 22.04/24.04 (amd64). It protects the mailcow you already have, or installs mailcow for you on a clean server. On KVM guests (Proxmox and most VPSs) it can also sync the clock to the hypervisor.
 
 ## Contents
 
 1. [Install the package](#1-install-the-package)
 2. [Open the setup wizard](#2-open-the-setup-wizard)
 3. [Checking the pasture](#3-checking-the-pasture)
-4. [Protection](#4-protection)
-5. [Certificates](#5-certificates)
-6. [Console access](#6-console-access)
-7. [Your admin account](#7-your-admin-account)
-8. [Review and install](#8-review-and-install)
-9. [First sign-in and 2FA](#9-first-sign-in-and-2fa)
-10. [A tour of the console](#10-a-tour-of-the-console)
-
+4. [Your mail server](#4-your-mail-server)
+5. [Protection](#5-protection)
+6. [Certificates](#6-certificates)
+7. [Console access](#7-console-access)
+8. [Your admin account](#8-your-admin-account)
+9. [Review and install](#9-review-and-install)
+10. [First sign-in and 2FA](#10-first-sign-in-and-2fa)
+11. [A tour of the console](#11-a-tour-of-the-console)
 ---
 
 ## 1. Install the package
@@ -76,7 +76,45 @@ A **red** check blocks the install. **Amber** is advice.
 
 <p align="center"><img src="img/setup/02-checks.webp" alt="Checking the pasture: pre-flight checks" width="900"></p>
 
-## 4. Protection
+## 4. Your mail server
+
+Choose **Protect my existing mailcow**, or, on a server without mailcow, **Install mailcow, then protect it**.
+
+<p align="center"><img src="img/setup/fresh-mailserver.webp" alt="Your mail server: protect an existing mailcow or install one" width="900"></p>
+
+To install, CowSec asks exactly the questions mailcow's own `generate_config.sh` asks, with the same defaults:
+
+| Question | Notes |
+|---|---|
+| **Mail server hostname (FQDN)** | The server's own name, e.g. `mail.example.com`, not your mail domain. A name without a subdomain gets mailcow's own warning, and you must confirm it. |
+| **Timezone** | Detected from the server. |
+| **Branch** | `master` (stable, recommended) or `nightly` (testing). mailcow's `legacy` branch stopped getting updates in February 2026. |
+| **Disable ClamAV** | Only asked at 2.5 GiB of memory or less, as mailcow does. |
+
+IPv6 isn't a question: mailcow tests the server's IPv6 connectivity itself and enables it only if it works.
+
+CowSec then installs Docker CE from Docker's official repository and clones mailcow-dockerized to `/opt/mailcow-dockerized`. It runs `generate_config.sh` with your answers, pulls the images and starts mailcow. Before any of that, the pre-flight checks:
+- memory (6 GiB recommended);
+- disk space;
+- that the mail and web ports are free;
+- that outbound port 25 isn't blocked;
+- that Debian's old `docker.io` package isn't installed.
+
+<p align="center"><img src="img/setup/fresh-checks.webp" alt="Pre-flight on a server without mailcow" width="900"></p>
+
+> [!IMPORTANT]
+> mailcow ships with a well-known default admin password. CowSec replaces it with a random one and shows it **once**, on the final screen. Save it, then sign in to mailcow and turn on 2FA there too.
+
+<p align="center"><img src="img/setup/fresh-installed.webp" alt="Installed, with the one-time mailcow admin login" width="900"></p>
+
+If this server already has a hand-built setup, the pre-flight shows what CowSec found and will take over:
+- certbot certificates;
+- OpenResty sites;
+- a CrowdSec that already reads mailcow's logs.
+
+See [Servers that already run CrowdSec](install.md#servers-that-already-run-crowdsec-or-a-hand-built-setup).
+
+## 5. Protection
 
 CrowdSec, the mailcow log readers and the firewall bouncer are always installed. Choose the extras:
 
@@ -92,7 +130,7 @@ CrowdSec, the mailcow log readers and the firewall bouncer are always installed.
 
 <p align="center"><img src="img/setup/03-protection.webp" alt="Protection options" width="900"></p>
 
-## 5. Certificates
+## 6. Certificates
 
 Pick **DNS-01** to get certificates through your DNS provider, with no port 80 and with wildcard support. Search for your provider among the 190+ that lego supports. The form shows exactly the credentials that provider needs.
 
@@ -103,7 +141,7 @@ Pick **DNS-01** to get certificates through your DNS provider, with no port 80 a
 
 Prefer to keep mailcow's own Let's Encrypt? Choose that card instead: the edge passes HTTP-01 challenges through to mailcow and reloads when mailcow renews.
 
-## 6. Console access
+## 7. Console access
 
 Choose how you'll reach the console once setup closes:
 
@@ -118,13 +156,13 @@ Choose how you'll reach the console once setup closes:
 
 See [access.md](access.md) for the details of each.
 
-## 7. Your admin account
+## 8. Your admin account
 
 Create the first CowSec account. Passwords need 12+ characters. You'll enrol an authenticator app at your first sign-in.
 
 <p align="center"><img src="img/setup/06-account.webp" alt="Create the admin account" width="720"></p>
 
-## 8. Review and install
+## 9. Review and install
 
 Check the summary, then **Install**.
 
@@ -140,7 +178,7 @@ Each step reports live, with the full log underneath. Every file CowSec changes 
 
 <p align="center"><img src="img/setup/10-finished.webp" alt="Setup finished" width="720"></p>
 
-## 9. First sign-in and 2FA
+## 10. First sign-in and 2FA
 
 Open the console at the address you chose and sign in.
 
@@ -150,7 +188,7 @@ The first time, scan the QR code with an authenticator app (Microsoft Authentica
 
 <p align="center"><img src="img/console/enrol-2fa.webp" alt="Enrol an authenticator app" width="720"></p>
 
-## 10. A tour of the console
+## 11. A tour of the console
 
 The sidebar has four groups: **The Barn** (the host), **Fence & Gate** (protection), **The Farm** (mailcow management, see [Managing mailcow](mailcow.md)) and **Herd Watch** (detection).
 

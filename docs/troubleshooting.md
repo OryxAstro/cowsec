@@ -63,3 +63,15 @@ The OpenResty bouncer needs the `lua-resty-http` library. Its package script dow
 ```bash
 sudo opm get ledgetech/lua-resty-http=0.17.1 && sudo systemctl restart openresty
 ```
+
+## "waiting for another apt/dpkg run to finish"
+
+New cloud servers and VPSs often run unattended upgrades just after first boot. CowSec waits for them (up to 20 minutes) instead of failing. To see what's running, use `ps aux | grep -E 'apt|dpkg'`.
+
+## "CrowdSec did not restart: … api.crowdsec.net …"
+
+CrowdSec 1.7+ stops at startup if it can't sign in to its central API. Check DNS, any outbound firewall and `/etc/hosts`. On a deliberately offline server, comment out `credentials_path` under `online_client` in `/etc/crowdsec/config.yaml`.
+
+## Installing mailcow: "the distribution's docker.io package is installed"
+
+mailcow needs Docker CE 24 or newer, and Debian's `docker.io` package is older. Remove it first with `sudo apt remove docker.io`. CowSec then installs Docker CE from Docker's own repository.

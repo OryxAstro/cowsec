@@ -206,6 +206,35 @@ def apt_key_repo(r, name, key_url, line, keyring):
 POLICY_RC = "/usr/sbin/policy-rc.d"
 
 
+APT_LOCKS = ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock")
+
+
+def wait_for_apt(r, timeout=1200):
+    """Fresh cloud servers run unattended upgrades on first boot; wait for them rather than fail."""
+    import fcntl
+    deadline, said = time.time() + timeout, False
+    while True:
+        busy = None
+        for path in APT_LOCKS:
+            if not os.path.exists(path):
+                continue
+            with open(path, "w") as f:
+                try:
+                    fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.lockf(f, fcntl.LOCK_UN)
+                except OSError:
+                    busy = path
+                    break
+        if not busy:
+            return
+        if time.time() > deadline:
+            raise StepError("apt is still busy after %d minutes (%s is locked)" % (timeout // 60, busy))
+        if not said:
+            r.log("waiting for another apt/dpkg run to finish (e.g. unattended upgrades)…")
+            said = True
+        time.sleep(5)
+
+
 def apt_install(r, pkgs, no_start=False):
     """Installs missing packages. no_start keeps maintainer scripts from starting services
     (e.g. OpenResty would try to bind port 80 while mailcow still holds it)."""
@@ -216,10 +245,11 @@ def apt_install(r, pkgs, no_start=False):
     own_policy = no_start and not os.path.exists(POLICY_RC)
     if own_policy:
         write(POLICY_RC, "#!/bin/sh\n# temporary, CowSec setup: do not start services during package installation\nexit 101\n", 0o755)
+    wait_for_apt(r)
     try:
         r.sh(["dpkg", "--configure", "-a"], check=False)  # finish any interrupted earlier attempt
         r.sh(["apt-get", "update", "-q"])
-        r.sh(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold"] + missing)
+        r.sh(["apt-get", "install", "-y", "-q", "-o", "DPkg::Lock::Timeout=600", "-o", "Dpkg::Options::=--force-confold"] + missing)
     finally:
         if own_policy and os.path.exists(POLICY_RC):
             os.remove(POLICY_RC)
@@ -675,9 +705,10 @@ def preflight():
     supported = (osid == "debian" and ver in ("11", "12", "13")) or (osid == "ubuntu" and ver in ("22.04", "24.04"))
     add("os", "Supported OS (Debian 11-13, Ubuntu 22.04/24.04)", "ok" if supported else "warn", "%s %s (%s)" % (osid, ver, code))
     add("systemd", "systemd", "ok" if os.path.isdir("/run/systemd/system") else "fail")
-    rc, out = run(["docker", "compose", "version", "--short"])
-    add("docker", "Docker with Compose v2", "ok" if rc == 0 else "fail", out.splitlines()[0] if out else "not found")
     mc = mailcow_info()
+    if mc["found"]:  # without mailcow, the fresh-install checks below cover Docker
+        rc, out = run(["docker", "compose", "version", "--short"])
+        add("docker", "Docker with Compose v2", "ok" if rc == 0 else "fail", out.splitlines()[0] if out else "not found")
     if not mc["found"]:
         add("mailcow", "mailcow-dockerized installation", "info", "not installed: CowSec can install it for you "
             "(already installed somewhere else? set MAILCOW_DIR in /etc/cowsec/cowsec.env)")
@@ -744,7 +775,12 @@ def preflight():
         add("docker-user", "Forwarded traffic (mail ports)", "ok", "covered by the nftables bouncer's forward hook")
     else:
         rc, out = run(["iptables", "-S", "DOCKER-USER"])
-        add("docker-user", "iptables DOCKER-USER chain", "ok" if rc == 0 else "warn", "" if rc == 0 else "not found; bans will only cover host services")
+        if rc == 0:
+            add("docker-user", "iptables DOCKER-USER chain", "ok", "")
+        elif not mc["found"] and not docker_major():
+            add("docker-user", "iptables DOCKER-USER chain", "info", "Docker creates it when it's installed")
+        else:
+            add("docker-user", "iptables DOCKER-USER chain", "warn", "not found; bans will only cover host services")
     rc, out = run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
     add("time", "Clock synchronised", "ok" if out.strip() == "yes" else "warn", "" if out.strip() == "yes" else "TOTP sign-in needs an accurate clock")
     ptp = os.path.exists("/dev/ptp0") or run(["modprobe", "-n", "ptp_kvm"])[0] == 0
@@ -1553,6 +1589,187 @@ def install(c, r, progress=None):
         if progress:
             progress(sid, "ok")
     r.log("=== setup complete")
+
+
+# ---------------------------------------------------------------- mailcow netfilter <-> CrowdSec
+
+NETFILTER_STATE = os.path.join(STATE_DIR, "netfilter.json")
+NETFILTER_REASON = "mailcow netfilter"   # marks decisions CowSec imported from netfilter
+NETFILTER_PERM = "8760h"                 # permanent bans: re-asserted every minute anyway
+F2B_FIELDS = ("ban_time", "max_ban_time", "ban_time_increment", "max_attempts", "retry_window",
+              "netban_ipv4", "netban_ipv6", "whitelist", "blacklist", "manage_external")
+
+
+def mailcow_api(method, path, body=None):
+    """mailcow's API on localhost with the key from /etc/cowsec/mailcow.env."""
+    import ssl
+    env = read_kv(ETC_DIR + "/mailcow.env")
+    key = env.get("COWSEC_MAILCOW_API_KEY")
+    if not key:
+        raise StepError("mailcow management isn't set up (sudo cowsec-setup mailcow-api)")
+    req = urllib.request.Request(env.get("COWSEC_MAILCOW_URL", "https://127.0.0.1:8443").rstrip("/") + "/api/v1/" + path,
+                                 data=json.dumps(body).encode() if body is not None else None, method=method,
+                                 headers={"X-API-Key": key, "Content-Type": "application/json", "Accept": "application/json"})
+    if env.get("COWSEC_MAILCOW_HOST"):
+        req.add_header("Host", env["COWSEC_MAILCOW_HOST"])
+    ctx = ssl.create_default_context()
+    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE  # localhost only
+    with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+        return json.loads(resp.read() or b"null")
+
+
+def netfilter_state():
+    try:
+        st = json.load(open(NETFILTER_STATE))
+    except Exception:
+        st = {}
+    return {"mode": st.get("mode", "side-by-side"), "syncTrusted": st.get("syncTrusted", True), "lastSync": st.get("lastSync"),
+            "imported": st.get("imported", 0), "lastError": st.get("lastError")}
+
+
+def f2b_settings(cur):
+    """The full settings object: mailcow resets anything an edit leaves out."""
+    out = {k: cur.get(k) for k in F2B_FIELDS}
+    out["ban_time_increment"] = "1" if cur.get("ban_time_increment") in (True, 1, "1") else "0"
+    out["manage_external"] = 1 if cur.get("manage_external") in (True, 1, "1") else 0
+    for k in ("whitelist", "blacklist"):
+        out[k] = cur.get(k) or ""
+    return out
+
+
+def trusted_networks():
+    """CowSec's allowlist plus the LAN ranges the install never bans."""
+    nets = []
+    try:
+        cfg = json.load(open(os.path.join(STATE_DIR, "setup.json")))
+        nets += cfg.get("lanRanges") or []
+    except Exception:
+        nets += PRIVATE_RANGES
+    rc, out = run(["cscli", "allowlists", "inspect", "cowsec", "-o", "json"])
+    if rc == 0:
+        try:
+            for it in (json.loads(out).get("items") or []):
+                v = it.get("value")
+                if v:
+                    nets.append(v if "/" in v else (v + ("/128" if ":" in v else "/32")))
+        except ValueError:
+            pass
+    clean = []
+    for n in nets:
+        try:
+            clean.append(str(ipaddress.ip_network(n, strict=False)))
+        except ValueError:
+            pass
+    return sorted(set(clean))
+
+
+def remaining_seconds(text):
+    m = re.match(r"\s*(-?\d+)h\s+(-?\d+)m\s+(-?\d+)s", text or "")
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3)) if m else 0
+
+
+def netfilter_sync(r=None):
+    """Runs every minute from cowsec-netfilter.timer (and right after a mode change):
+    keeps netfilter's whitelist in line with CowSec's trusted networks and, in
+    'crowdsec' mode, mirrors netfilter's bans into CrowdSec decisions."""
+    st = netfilter_state()
+    try:
+        cur = mailcow_api("GET", "get/fail2ban")
+        want_external = 1 if st["mode"] == "crowdsec" else 0
+        settings = f2b_settings(cur)
+        changed = settings["manage_external"] != want_external
+        settings["manage_external"] = want_external
+        if st["syncTrusted"]:
+            have = [x for x in re.split(r"[\s,;]+", settings["whitelist"]) if x]
+            merged = sorted(set(have) | set(trusted_networks()))
+            if merged != sorted(set(have)):
+                settings["whitelist"] = "\n".join(merged)
+                changed = True
+        if changed:
+            mailcow_api("POST", "edit/fail2ban", {"items": ["none"], "attr": settings})
+        imported = 0
+        if st["mode"] == "crowdsec":
+            rc, out = run(["cscli", "decisions", "list", "-o", "json", "--limit", "0"])
+            have = {}
+            for alert in (json.loads(out) if rc == 0 and out.strip() not in ("", "null") else []) or []:
+                for d in alert.get("decisions") or []:
+                    if d.get("scenario") == NETFILTER_REASON:
+                        have[d["value"]] = d
+            want = {}
+            for b in cur.get("active_bans") or []:
+                if isinstance(b, dict) and b.get("network") and not b.get("queued_for_unban"):
+                    secs = remaining_seconds(b.get("banned_until"))
+                    if secs > 30:
+                        want[b["network"]] = "%ds" % secs
+            # the same set mailcow publishes for external firewalls: its blacklist plus active bans
+            perm = [b["network"] for b in (cur.get("perm_bans") or []) if isinstance(b, dict) and b.get("network")]
+            for x in perm + [x for x in re.split(r"[\s,;]+", cur.get("blacklist") or "") if x]:
+                try:
+                    want[str(ipaddress.ip_network(x, strict=False))] = NETFILTER_PERM
+                except ValueError:
+                    pass
+            for net, dur in want.items():
+                key = net[:-3] if net.endswith("/32") else net
+                if key not in have and net not in have:
+                    rng = ["--ip", key] if "/" not in key else ["--range", net]
+                    run(["cscli", "decisions", "add"] + rng + ["--duration", dur, "--reason", NETFILTER_REASON, "--type", "ban"])
+                    imported += 1
+            for val in have:
+                if val not in want and val + "/32" not in want:
+                    run(["cscli", "decisions", "delete", "--ip" if "/" not in val else "--range", val])
+        st.update(lastSync=time.strftime("%Y-%m-%dT%H:%M:%S%z"), imported=st.get("imported", 0) + imported, lastError=None)
+    except Exception as e:
+        st.update(lastError=str(e)[:300])
+        if r:
+            r.log("netfilter sync: %s" % e)
+    write(NETFILTER_STATE, json.dumps(st) + "\n", 0o600)
+    return st
+
+
+def netfilter_coordinate(mode, sync_trusted, r):
+    if mode not in ("side-by-side", "crowdsec") or not isinstance(sync_trusted, bool):
+        raise StepError("mode must be side-by-side or crowdsec")
+    st = netfilter_state()
+    st.update(mode=mode, syncTrusted=sync_trusted)
+    write(NETFILTER_STATE, json.dumps(st) + "\n", 0o600)
+    write("/etc/systemd/system/cowsec-netfilter.service",
+          "[Unit]\nDescription=Coordinate mailcow netfilter with CrowdSec (CowSec)\nAfter=crowdsec.service docker.service\n\n"
+          "[Service]\nType=oneshot\nEnvironment=SSH_ORIGINAL_COMMAND=netfilter-sync\nEnvironment=SSH_CLIENT=timer\nExecStart=%s\n" % HOSTCTL, r=r)
+    write("/etc/systemd/system/cowsec-netfilter.timer",
+          "[Unit]\nDescription=Coordinate mailcow netfilter with CrowdSec every minute (CowSec)\n\n"
+          "[Timer]\nOnBootSec=2min\nOnUnitActiveSec=1min\nAccuracySec=10s\n\n[Install]\nWantedBy=timers.target\n", r=r)
+    r.sh(["systemctl", "daemon-reload"])
+    if mode == "crowdsec" or sync_trusted:
+        r.sh(["systemctl", "enable", "--now", "cowsec-netfilter.timer"])
+    else:
+        r.sh(["systemctl", "disable", "--now", "cowsec-netfilter.timer"], check=False)
+    if mode == "side-by-side":
+        # hand enforcement back to netfilter and drop what CowSec imported
+        rc, out = run(["cscli", "decisions", "list", "-o", "json", "--limit", "0"])
+        for alert in (json.loads(out) if rc == 0 and out.strip() not in ("", "null") else []) or []:
+            for d in alert.get("decisions") or []:
+                if d.get("scenario") == NETFILTER_REASON:
+                    run(["cscli", "decisions", "delete", "--id", str(d["id"])])
+    return netfilter_sync(r)
+
+
+def mailcow_da_acl():
+    """Domain-admin permissions straight from mailcow's database (the API doesn't return them)."""
+    mc = find_mailcow()
+    if not mc:
+        return {"keys": [], "acls": {}}
+    conf = read_kv(os.path.join(mc, "mailcow.conf"))
+    def q(sql):
+        rc, out = compose(mc, ["exec", "-T", "-e", "MYSQL_PWD=" + conf.get("DBPASS", ""), "mysql-mailcow", "mysql", "-u" + conf.get("DBUSER", "mailcow"),
+                               conf.get("DBNAME", "mailcow"), "-B", "-N", "-e", sql])
+        if rc != 0:
+            raise StepError("could not read domain-admin permissions")
+        return [l.split("\t") for l in out.splitlines() if l.strip()]
+    head = [c[0] for c in q("SHOW COLUMNS FROM da_acl")]  # an empty table prints no header
+    keys = [k for k in head if k != "username"]
+    lines = [head] + q("SELECT * FROM da_acl")
+    acls = {row[head.index("username")]: {k: row[head.index(k)] == "1" for k in keys} for row in lines[1:] if len(row) == len(head)}
+    return {"keys": keys, "acls": acls}
 
 
 # ---------------------------------------------------------------- mailcow updates

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>Turn a stock mailcow server into a well-defended one in minutes, then run it from a friendly console.</b><br>
+  <b>Turn a stock mailcow server into a well-defended one in minutes (or start from a bare server), then run it from a friendly console.</b><br>
   <sub>Firewall + Docker-aware bans · OpenResty edge with AppSec WAF · DNS-01 certificates for 190+ providers · smart ban policy · 2FA console</sub>
 </p>
 
@@ -76,6 +76,7 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 
 **🖥️ Console & setup**
 - **Browser setup wizard** with pre-flight checks, live progress, backups and automatic rollback.
+- **Protect your existing mailcow, or install one**: asks the same questions as mailcow's own installer. It also takes over hand-built setups (certbot, OpenResty, CrowdSec) cleanly.
 - Console for bans, alerts, the WAF, the hub, bouncers and policy.
 - **One-click updates** for mailcow (with backup), CrowdSec and the hub, shown as an animated pipeline with health checks.
 - **2FA sign-in** (TOTP or Duo), local accounts or LDAP, audit log.
@@ -86,12 +87,14 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 <tr>
 <td colspan="2" valign="top">
 
-**🏡 The Farm: mailcow management** *(new)*
+**🏡 The Farm: mailcow management**
 Run mailcow's day-to-day admin from CowSec, behind its 2FA sign-in and audit log:
 - domains and mailboxes, including quotas, password resets and last logins;
 - aliases and catch-alls;
 - DKIM keys with ready-to-paste DNS records;
-- the quarantine, the mail queue (retry / hold / delete) and mailcow's logs.
+- the quarantine, the mail queue (retry / hold / delete) and mailcow's logs;
+- domain admins and their permissions, rate limits, TLS policies, relay hosts and transports;
+- mailcow's own **netfilter** ban engine, side by side with CrowdSec or with CrowdSec enforcing its bans.
 
 It uses mailcow's own API, restricted to localhost. [Learn more →](docs/mailcow.md)
 
@@ -139,6 +142,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 |---|---|
 | <img src="docs/img/mail/farm.webp" alt="Farmhouse"> | <img src="docs/img/mail/mailboxes.webp" alt="Mailboxes"> |
 | <img src="docs/img/mail/dkim.webp" alt="DKIM"> | <img src="docs/img/mail/queue.webp" alt="Mail queue"> |
+| <img src="docs/img/mail/farmhands.webp" alt="Domain admins"> | <img src="docs/img/console/netfilter.webp" alt="mailcow netfilter and CrowdSec"> |
 
 </details>
 
@@ -151,7 +155,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🌐 [Console access](docs/access.md) | LAN, Cloudflare Tunnel, internet, SSH |
 | 🔐 [Certificates](docs/certificates.md) | DNS-01 providers, per-domain certificates, renewal |
 | 🐄 [Ban policy](docs/ban-policy.md) | Home countries, abroad rule, escalation, allowlists |
-| 🏡 [Managing mailcow](docs/mailcow.md) | Domains, mailboxes, aliases, DKIM, quarantine, queue, logs |
+| 🏡 [Managing mailcow](docs/mailcow.md) | Domains, mailboxes, aliases, DKIM, quarantine, queue, logs, domain admins, rate limits, TLS, relays, netfilter |
 | 🛡️ [Security model](docs/security.md) | Privileges, sign-in, setup token, what leaves the server |
 | 🔧 [Maintenance](docs/maintenance.md) | Updates, reverting the edge, uninstalling |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Lock-outs, clocks, certificates, OpenResty |

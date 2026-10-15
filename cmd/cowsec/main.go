@@ -65,7 +65,15 @@ func main() {
 	r.Route("/api", func(r chi.Router) {
 		r.Route("/auth", authSvc.Routes)
 		r.Route("/crowdsec", func(cr chi.Router) { crowdsec.Routes(cr, host) })
-		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mailcow.FromEnv()) })
+		mc := mailcow.FromEnv()
+		if mc != nil {
+			host.OnUnban = func(v string) {
+				if err := mc.Unban(v); err != nil {
+					log.Printf("mailcow netfilter unban %s: %v", v, err)
+				}
+			}
+		}
+		r.Route("/mailcow", func(mr chi.Router) { mailcow.Routes(mr, mc, mailcow.Options{Gate: host.Gate}) })
 	})
 
 	uiDir := env("COWSEC_UI_DIR", "/usr/share/cowsec/ui")

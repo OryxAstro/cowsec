@@ -181,6 +181,9 @@ func Routes(cr chi.Router, t *Target) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		if ip != "" && t.OnUnban != nil {
+			go t.OnUnban(ip)
+		}
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "success",
 			"message": msg,

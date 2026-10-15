@@ -12,7 +12,7 @@ import { Card, Tile } from './HostPanel';
 
 type Result<T> = { data: T | null; error: string; loading: boolean; notConfigured: boolean; reload: () => void };
 
-function useApi<T>(path: string | null): Result<T> {
+export function useApi<T>(path: string | null): Result<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,7 +44,7 @@ function useApi<T>(path: string | null): Result<T> {
   return { data, error, loading, notConfigured, reload: () => setTick((t) => t + 1) };
 }
 
-async function send(method: string, path: string, body?: unknown): Promise<string> {
+export async function send(method: string, path: string, body?: unknown): Promise<string> {
   const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
@@ -55,9 +55,9 @@ const mb = (n: number | string | undefined) => {
   const v = Number(n || 0) / 1048576;
   return v >= 1024 ? `${(v / 1024).toFixed(1)} GiB` : `${v.toFixed(v < 10 ? 1 : 0)} MiB`;
 };
-const on = (v: unknown) => v === 1 || v === '1' || v === true;
+export const on = (v: unknown) => v === 1 || v === '1' || v === true;
 
-function NotConfigured() {
+export function NotConfigured() {
   return (
     <div className="max-w-xl mx-auto mt-10 text-center space-y-3 bg-slate-900/60 border border-amber-900/60 rounded-2xl p-8">
       <KeyRound className="w-8 h-8 text-amber-400 mx-auto" />
@@ -69,7 +69,7 @@ function NotConfigured() {
   );
 }
 
-function Problem({ text }: { text: string }) {
+export function Problem({ text }: { text: string }) {
   return (
     <div className="flex items-start gap-2 text-rose-300 bg-rose-950/40 border border-rose-900 rounded-xl p-3 text-sm">
       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -78,7 +78,7 @@ function Problem({ text }: { text: string }) {
   );
 }
 
-function Loading({ text }: { text: string }) {
+export function Loading({ text }: { text: string }) {
   return (
     <div className="flex items-center gap-2 text-slate-400 text-sm p-6">
       <Loader2 className="w-4 h-4 animate-spin" /> {text}
@@ -102,7 +102,7 @@ function Toast({ msg, onClose }: { msg: { ok: boolean; text: string } | null; on
   );
 }
 
-function useToast() {
+export function useToast() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const close = useCallback(() => setMsg(null), []);
   const run = async (fn: () => Promise<string>, after?: () => void) => {
@@ -116,10 +116,10 @@ function useToast() {
   return { toast: <Toast msg={msg} onClose={close} />, run };
 }
 
-const input = 'bg-slate-950/60 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500';
-const btn = 'inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 cursor-pointer disabled:opacity-40';
+export const input = 'bg-slate-950/60 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-sky-500';
+export const btn = 'inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg px-3 py-1.5 cursor-pointer disabled:opacity-40';
 
-function Pill({ ok, yes = 'Active', no = 'Inactive' }: { ok: boolean; yes?: string; no?: string }) {
+export function Pill({ ok, yes = 'Active', no = 'Inactive' }: { ok: boolean; yes?: string; no?: string }) {
   return <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${ok ? 'text-emerald-300 bg-emerald-950/60' : 'text-slate-400 bg-slate-800'}`}>{ok ? yes : no}</span>;
 }
 
@@ -132,7 +132,7 @@ function Bar({ pct }: { pct: number }) {
   );
 }
 
-function Confirm({ label, onConfirm, danger = true, children }: { label: string; onConfirm: () => void; danger?: boolean; children: ReactNode }) {
+export function Confirm({ label, onConfirm, danger = true, children }: { label: string; onConfirm: () => void; danger?: boolean; children: ReactNode }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -283,7 +283,7 @@ export function DomainsPanel() {
   );
 }
 
-function Header({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
+export function Header({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -295,7 +295,7 @@ function Header({ title, sub, action }: { title: string; sub: string; action?: R
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>

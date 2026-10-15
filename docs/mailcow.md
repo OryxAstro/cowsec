@@ -18,6 +18,11 @@ The pages live under **The Farm · Mail** in the sidebar.
 | **Quarantine Pen** | Release or delete messages rspamd held back |
 | **Milk Queue (Mail queue)** | See stuck outgoing mail with the reason, retry, hold or delete |
 | **Farm Log (Logs)** | postfix, dovecot, rspamd, SOGo, netfilter, ACME and more, with a filter |
+| **Farmhands (Domain admins)** | Domain administrators, their domains and exactly which permissions they have |
+| **Grazing Limits (Rate limits)** | Messages per second/minute/hour/day for each domain and mailbox |
+| **Locked Lanes (TLS policy)** | Require TLS, a verified certificate or DANE for particular destinations |
+| **Cattle Routes (Relays)** | Relay hosts (smarthosts) per domain, and transport maps per destination |
+| **Guard Dog (netfilter)**, under Fence & Gate | mailcow's own ban engine, and how it works with CrowdSec |
 
 ## Turning it on
 
@@ -78,6 +83,51 @@ The queue shows why a message is waiting, for example a remote server refusing i
 ### Farm Log
 
 <p align="center"><img src="img/mail/logs.webp" alt="mailcow logs" width="900"></p>
+
+### Farmhands (Domain admins)
+
+Create domain administrators, choose their domains, and switch each permission on or off: sync jobs, quarantine, log in as a user, spam lists, protocol access, relay hosts and so on. mailcow's API doesn't report permissions, so CowSec reads them from mailcow's database (read-only) and saves them through the API.
+
+<p align="center"><img src="img/mail/farmhands.webp" alt="Farmhands: domain admins and permissions" width="900"></p>
+
+### Grazing Limits (Rate limits)
+
+Set how many messages each domain or mailbox may send per second, minute, hour or day. A hijacked account then can't send thousands of spam messages from your IP before you notice. rspamd enforces the limits; 0 removes one.
+
+<p align="center"><img src="img/mail/ratelimits.webp" alt="Grazing Limits: rate limits" width="900"></p>
+
+### Locked Lanes (TLS policy)
+
+Require encryption, a verified certificate or DANE when sending to particular domains or addresses, for example your bank or a partner. If the other side can't meet the policy, mail waits in the queue instead of going out unprotected.
+
+<p align="center"><img src="img/mail/tls-policy.webp" alt="Locked Lanes: TLS policy maps" width="900"></p>
+
+### Cattle Routes (Relay hosts & transports)
+
+- **Relay hosts** send mail through a smarthost. This is handy when your provider blocks outbound port 25. You can choose per domain which relay to use, or send directly.
+- **Transports** route mail for particular destinations, or for everything hosted at one provider, to a specific next hop.
+
+<p align="center"><img src="img/mail/routes.webp" alt="Cattle Routes: relay hosts and transports" width="900"></p>
+
+### Guard Dog (mailcow netfilter)
+
+mailcow has its own ban engine, *netfilter*. It is a separate guard from CrowdSec, so CowSec shows it under **Fence & Gate**. From this page you can:
+- see netfilter's active and permanent bans;
+- unban, whitelist or blacklist a network;
+- edit its thresholds.
+
+Choose how the two guards work together:
+
+| Mode | What happens |
+|---|---|
+| **Side by side** (default) | netfilter bans in its own firewall chain and CrowdSec bans in `DOCKER-USER`. |
+| **CrowdSec enforces** | netfilter keeps detecting but switches to mailcow's *manage externally* mode. Every minute CowSec turns its active bans and blacklist into CrowdSec decisions (reason `mailcow netfilter`). Every ban then shows in **Banned from the Herd**, under one firewall. Switching back hands enforcement back to netfilter and removes the imported decisions. |
+
+In both modes:
+- **Keep trusted lists in step** adds your **Trusted Herd** allowlist and local network to netfilter's whitelist, so neither guard bans them.
+- Lifting a ban in **Banned from the Herd** lifts it in netfilter too.
+
+<p align="center"><img src="img/console/netfilter.webp" alt="Guard Dog: mailcow netfilter and CrowdSec" width="900"></p>
 
 ## Limits
 

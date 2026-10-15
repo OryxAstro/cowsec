@@ -1,7 +1,16 @@
 # Build the CowSec binary, the web UI and a Debian/Ubuntu package (amd64).
-GIT_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
-VERSION ?= $(if $(GIT_VERSION),$(GIT_VERSION),0.0.0)
-DEB_VERSION := $(shell echo $(VERSION) | sed 's/-/~/g; s/^[^0-9]/0~&/')
+# Versions always sort upwards for apt: v0.3.0 -> 0.3.0, 5 commits later -> 0.3.0+5.gabc1234,
+# and before the first tag -> 0.3.0~dev+<commit count>.<hash> (sorts below 0.3.0).
+BASE_VERSION := 0.3.0
+GIT_DESC := $(shell git describe --tags --long --match 'v[0-9]*' 2>/dev/null)
+GIT_DIRTY := $(shell git diff --quiet HEAD 2>/dev/null || echo .dirty)
+ifneq ($(GIT_DESC),)
+GIT_VERSION := $(shell echo $(GIT_DESC) | sed -E 's/^v//; s/-0-g[0-9a-f]+$$//; s/-([0-9]+)-(g[0-9a-f]+)$$/+\1.\2/')$(GIT_DIRTY)
+else
+GIT_VERSION := $(BASE_VERSION)~dev+$(shell git rev-list --count HEAD 2>/dev/null).$(shell git rev-parse --short HEAD 2>/dev/null)$(GIT_DIRTY)
+endif
+VERSION ?= $(GIT_VERSION)
+DEB_VERSION := $(shell echo $(VERSION) | sed 's/-/~/g')
 BUILD := build
 PKG := $(BUILD)/pkg
 

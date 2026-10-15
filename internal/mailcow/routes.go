@@ -67,7 +67,7 @@ func num(name string, v *int, max int, attr map[string]interface{}, key string) 
 }
 
 // Routes mounts /api/mailcow. c may be nil (API not configured yet).
-func Routes(r chi.Router, c *Client) {
+func Routes(r chi.Router, c *Client, o Options) {
 	r.Get("/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]interface{}{"configured": c != nil})
 	})
@@ -83,6 +83,7 @@ func Routes(r chi.Router, c *Client) {
 			})
 		})
 		mount(r, c)
+		mountAdmin(r, c, o)
 	})
 }
 

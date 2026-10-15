@@ -10,9 +10,9 @@
 | Need | Why |
 |---|---|
 | Debian 11/12/13 or Ubuntu 22.04/24.04, amd64, systemd | The packages CowSec installs (CrowdSec, OpenResty, cloudflared) target these. |
-| mailcow-dockerized, running | CowSec reads mailcow's config (`mailcow.conf`), containers and domain list. It looks in `/opt/mailcow-dockerized`, `/opt/mailcow` and `/srv/mailcow-dockerized`; set `MAILCOW_DIR` if yours lives elsewhere. |
+| mailcow-dockerized, or a clean server | With an existing mailcow, CowSec reads its config (`mailcow.conf`), containers and domains. It looks in `/opt/mailcow-dockerized`, `/opt/mailcow` and `/srv/mailcow-dockerized`; set `MAILCOW_DIR` if yours lives elsewhere. On a clean server, the wizard can install Docker CE and mailcow for you (6 GiB of memory and 20 GB of disk recommended, ports 25, 80, 110, 143, 443, 465, 587, 993, 995 and 4190 free). |
 | Root (sudo) | It installs packages, edits firewall and mailcow settings, and manages services. |
-| Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
+| Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
 | An accurate clock | 2FA codes depend on it. On Proxmox/KVM, the wizard can sync to the hypervisor's clock. |
 | No other CrowdSec | If CrowdSec already runs **in a container** (e.g. a compose override), remove it first: two engines double-ban. A CrowdSec already installed on the host is reused. |
 | Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8081/8443`. CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
@@ -88,6 +88,8 @@ sudo cowsec auth local-admin set alice
   "lanRanges": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7", "127.0.0.0/8", "::1/128"]
 }
 ```
+
+To install mailcow as well, add `"mailcow": { "mode": "install", "hostname": "mail.example.com", "timezone": "Europe/London", "branch": "master", "skipClamd": false }`. Use `"acceptNoSubdomain": true` for a hostname without a subdomain. The default is `{ "mode": "existing" }`.
 
 `certs` can be `{ "mode": "mailcow" }`. For a tunnel, use `"access": { "mode": "tunnel", "tunnelToken": "…" }`. Delete the file afterwards: it holds secrets.
 
