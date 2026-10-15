@@ -286,7 +286,7 @@ func (t *Target) GetDecisions(origin, search string, limit, offset int) ([]Decis
 		return nil, 0, fmt.Errorf("failed to parse decisions output: %v (%s)", err, string(out))
 	}
 
-	var allDecisions []DecisionView
+	allDecisions := []DecisionView{}
 	var ipsToEnrich []string
 
 	for _, alert := range alerts {
@@ -454,7 +454,7 @@ func (t *Target) GetAlerts(limit int) ([]AlertView, error) {
 		return nil, fmt.Errorf("failed to parse alerts: %v", err)
 	}
 
-	var views []AlertView
+	views := []AlertView{}
 	var ipsToEnrich []string
 
 	for _, a := range alerts {
@@ -705,7 +705,7 @@ func (t *Target) FetchHubCategory(category string, all bool) ([]ItemInfo, error)
 	}
 
 	var rawMap map[string][]ItemInfo
-	var result []ItemInfo
+	result := []ItemInfo{}
 	if err := json.Unmarshal(out, &rawMap); err == nil {
 		for _, items := range rawMap {
 			result = items
@@ -767,7 +767,7 @@ func (t *Target) GetHubCatalog(category string, all bool) ([]ItemInfo, map[strin
 		}(i, cat)
 	}
 	wg.Wait()
-	var allItems []ItemInfo
+	allItems := []ItemInfo{}
 	for i, cat := range categories {
 		counts[cat] = len(results[i])
 		allItems = append(allItems, results[i]...)

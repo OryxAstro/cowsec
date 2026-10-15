@@ -318,7 +318,7 @@ def preflight():
     rc, out = run(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
     add("time", "Clock synchronised", "ok" if out.strip() == "yes" else "warn", "" if out.strip() == "yes" else "TOTP sign-in needs an accurate clock")
     ptp = os.path.exists("/dev/ptp0") or run(["modprobe", "-n", "ptp_kvm"])[0] == 0
-    add("ptp", "KVM PTP clock (optional, Proxmox/KVM guests)", "ok" if ptp else "info", "available" if ptp else "not a KVM guest")
+    add("ptp", "Hypervisor clock (KVM PTP, optional)", "ok" if ptp else "info", "available: Proxmox/KVM guest" if ptp else "not available (bare metal or non-KVM): chrony uses internet NTP")
     st = os.statvfs("/var")
     free_gb = st.f_bavail * st.f_frsize / 1e9
     add("disk", "Free disk space in /var", "ok" if free_gb > 2 else "warn", "%.1f GB" % free_gb)
@@ -883,12 +883,17 @@ def step_cloudflare_realip(c, r, ctx):
 
 
 def step_chrony(c, r, ctx):
+    """chrony with internet NTP everywhere; on KVM guests (Proxmox, most VPSs) also the
+    hypervisor's clock through the paravirtual PTP device, which is far more precise."""
     apt_install(r, ["chrony"])
-    write("/etc/modules-load.d/cowsec-ptp_kvm.conf", "ptp_kvm\n", r=r)
-    r.sh(["modprobe", "ptp_kvm"], check=False)
-    write("/etc/chrony/conf.d/cowsec-ptp.conf",
-          "# Managed by CowSec: hypervisor clock via the KVM paravirtual PTP device.\n"
-          "refclock PHC /dev/ptp0 poll 2 dpoll -2 offset 0 stratum 2 prefer\n", r=r)
+    if run(["modprobe", "ptp_kvm"])[0] == 0 and os.path.exists("/dev/ptp0"):
+        write("/etc/modules-load.d/cowsec-ptp_kvm.conf", "ptp_kvm\n", r=r)
+        write("/etc/chrony/conf.d/cowsec-ptp.conf",
+              "# Managed by CowSec: hypervisor clock via the KVM paravirtual PTP device.\n"
+              "refclock PHC /dev/ptp0 poll 2 dpoll -2 offset 0 stratum 2 prefer\n", r=r)
+    else:
+        r.log("no KVM PTP device: using internet NTP servers only")
+    r.sh(["systemctl", "enable", "--now", "chrony"])
     r.sh(["systemctl", "restart", "chrony"])
 
 
@@ -987,7 +992,7 @@ STEPS = [
     ("certs", "Certificates via DNS-01 (lego)", lambda c: c["certs"]["mode"] == "dns01", step_certs),
     ("edge", "OpenResty edge with the CrowdSec bouncer and AppSec WAF", lambda c: c["components"]["edge"], step_edge),
     ("realip", "Cloudflare real visitor IPs", lambda c: c["components"]["edge"] and c["components"]["cloudflareRealIP"], step_cloudflare_realip),
-    ("chrony", "Precise clock from the hypervisor (KVM PTP)", lambda c: c["components"]["chronyPtp"], step_chrony),
+    ("chrony", "Accurate clock (chrony)", lambda c: c["components"]["chronyPtp"], step_chrony),
     ("policy", "Ban policy: home countries, abroad login rule, escalating bans", lambda c: c["components"]["banPolicy"], step_ban_policy),
     ("access", "Console access", lambda c: True, step_access),
     ("finish", "Test configuration and start everything", lambda c: True, step_finish),

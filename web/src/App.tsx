@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import CowSecLogo from './CowSecLogo';
 import CrowdSecConsole, { type CsSubTabType } from './CrowdSecConsole';
+import ErrorBoundary from './ErrorBoundary';
 import { THEME_PALETTES, type ThemePalette } from './themes';
 import type { Identity } from './session';
 
@@ -190,7 +191,9 @@ export default function App({ session, onLogout, onOpenSettings }: { session: Id
           ))}
         </aside>
         <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
-          <CrowdSecConsole csSubTab={tab} />
+          <ErrorBoundary resetKey={tab}>
+            <CrowdSecConsole csSubTab={tab} />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

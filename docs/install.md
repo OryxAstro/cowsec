@@ -1,5 +1,8 @@
 # Installing CowSec
 
+> [!TIP]
+> Want to see it first? The [installation walkthrough](guide.md) shows every wizard step with screenshots.
+
 ## Before you start
 
 | Need | Why |

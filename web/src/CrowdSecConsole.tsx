@@ -326,7 +326,10 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
   const fetchCrowdSecAlerts = async () => {
     try {
       const res = await fetch('/api/crowdsec/alerts?limit=50');
-      if (res.ok) setCsAlerts(await res.json());
+      if (res.ok) {
+        const a = await res.json();
+        setCsAlerts(Array.isArray(a) ? a : []);
+      }
     } catch {
       // ignore
     }

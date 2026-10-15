@@ -20,6 +20,8 @@ The page shows failed logins by country over the last 24 hours (looked up in the
 
 ## Escalating bans
 
+<p align="center"><img src="assets/ban-ladder.svg" alt="Escalating ban ladder" width="100%"></p>
+
 Each new ban looks at how often CrowdSec banned that IP in the last *N* days and gets longer: **double** (4h → 8h → 16h → … capped) or **linear** (4h → 8h → 12h → …). It applies to every scenario: mail, web, WAF, SSH.
 
 This is done with CrowdSec profiles (`GetDecisionsSinceCount`), not extra scenarios, so it reflects real previous bans.

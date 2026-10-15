@@ -263,7 +263,7 @@ func Routes(cr chi.Router, t *Target) {
 			return
 		}
 
-		var filtered []ItemInfo
+		filtered := []ItemInfo{}
 		enabledCount := 0
 		for _, itm := range items {
 			isEnabled := strings.Contains(itm.Status, "enabled")

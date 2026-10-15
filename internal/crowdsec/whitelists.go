@@ -42,7 +42,7 @@ const parserDir = "/etc/crowdsec/parsers/s02-enrich"
 func readParserWhitelists() []ParserWhitelist {
 	files, _ := filepath.Glob(filepath.Join(parserDir, "*.yaml"))
 	sort.Strings(files)
-	var out []ParserWhitelist
+	out := []ParserWhitelist{}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {

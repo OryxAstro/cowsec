@@ -155,7 +155,7 @@ export default function SetupWizard() {
       setPre(d);
       if (d.mailcow?.domains) setDomains(d.mailcow.domains);
       if (d.mailcow?.hostname && !hostname) setHostname('cowsec.' + d.mailcow.hostname.split('.').slice(1).join('.'));
-      setComp((c) => ({ ...c, chronyPtp: d.checks.some((x: Check) => x.id === 'ptp' && x.status === 'ok') }));
+      setComp((c) => ({ ...c, chronyPtp: true }));
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     }
@@ -412,8 +412,10 @@ export default function SetupWizard() {
             hint="/admin and /domainadmin answer only from private addresses. Webmail, ActiveSync and autodiscover stay public." />
           <Toggle on={comp.edge && comp.cloudflareRealIP} disabled={!comp.edge} onChange={(v) => setComp({ ...comp, cloudflareRealIP: v })} label="Behind Cloudflare's proxy (orange cloud)"
             hint="Trusts CF-Connecting-IP from Cloudflare's published ranges (refreshed monthly) so bans hit visitors, not Cloudflare." />
-          <Toggle on={comp.chronyPtp} onChange={(v) => setComp({ ...comp, chronyPtp: v })} label="Precise clock from the hypervisor (KVM/Proxmox)"
-            hint="Uses the KVM PTP device with chrony. Accurate time matters for 2FA codes and log timestamps." disabled={!pre?.checks.some((c) => c.id === 'ptp' && c.status === 'ok')} />
+          <Toggle on={comp.chronyPtp} onChange={(v) => setComp({ ...comp, chronyPtp: v })} label="Accurate clock (chrony)"
+            hint={pre?.checks.some((c) => c.id === 'ptp' && c.status === 'ok')
+              ? "Installs chrony and syncs to the hypervisor's clock (KVM PTP) as well as internet NTP. Accurate time matters for 2FA codes and log timestamps."
+              : 'Installs chrony with internet NTP servers. Accurate time matters for 2FA codes and log timestamps.'} />
           <Toggle on={comp.banPolicy} onChange={(v) => setComp({ ...comp, banPolicy: v })} label="Smart ban policy" badge="recommended"
             hint="Bans password-spraying bots outside your home countries after 2 failed logins, and doubles ban length for repeat offenders (4h up to 7 days)." />
         </div>

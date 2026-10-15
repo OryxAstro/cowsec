@@ -1,25 +1,6 @@
 # How it fits together
 
-```
-                 internet / LAN
-                       │
-          ┌────────────┴─────────────────────────────────────────┐
-          │ iptables: CROWDSEC chain on INPUT and DOCKER-USER     │ ◄── crowdsec-firewall-bouncer
-          └────────────┬───────────────────────┬─────────────────┘
-                       │ 80/443                │ 25/465/587/143/993/110/995/4190
-               ┌───────▼────────┐        ┌─────▼──────────────────────────┐
-               │ OpenResty edge │        │ mailcow containers              │
-               │ Lua bouncer ───┼──► AppSec (127.0.0.1:7422)              │
-               │ admin: LAN only│        │ postfix · dovecot · nginx · …   │
-               └───┬────────┬───┘        └─────┬──────────────────────────┘
-                   │        │                  │ logs (Docker API)
-     mailcow web   │        │ console host     ▼
- 127.0.0.1:8443 ◄──┘        └──► CowSec    CrowdSec engine + LAPI (127.0.0.1:8080)
-                                127.0.0.1:8090     ▲   profiles.yaml (ban policy, escalation)
-                                    │              │   cowsec-auth-abroad scenario
-                                    ├── cscli ─────┘   allowlist "cowsec"
-                                    └── cowsec-hostctl (allowlisted verbs, jobs, setup engine)
-```
+<p align="center"><img src="assets/architecture.svg" alt="CowSec architecture" width="100%"></p>
 
 | Component | Language | Role |
 |---|---|---|
