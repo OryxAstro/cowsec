@@ -255,3 +255,110 @@ class MailcowPortFix(unittest.TestCase):
         with mock.patch.object(se, "compose") as comp:
             self.assertFalse(se.fix_mailcow_http_port(FakeRunner())["changed"])
         comp.assert_not_called()
+
+
+class Uninstall(unittest.TestCase):
+    """Uninstalling leaves mailcow on its own settings, keeping the admin's later changes."""
+    BEFORE = "# mailcow\nMAILCOW_HOSTNAME=mail.example.org\nHTTP_PORT=80\nHTTP_BIND=\nHTTPS_PORT=443\nHTTPS_BIND=\nSKIP_LETS_ENCRYPT=n\nSKIP_CLAMD=n\n"
+    NOW = ("# mailcow\nMAILCOW_HOSTNAME=mail.example.org\nHTTP_PORT=8180\nHTTP_BIND=127.0.0.1\nHTTPS_PORT=8443\nHTTPS_BIND=127.0.0.1\n"
+           "SKIP_LETS_ENCRYPT=y\nSKIP_CLAMD=y\nAPI_KEY=abcdefabcdefabcdefabcdefabcdef\nAPI_ALLOW_FROM=127.0.0.1,::1,172.22.1.1\nADDITIONAL_SAN=cowsec.example.org\n")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(dir=SCRATCH)
+        self.mc = os.path.join(self.root, "mailcow")
+        self.ngx = os.path.join(self.root, "ngx")
+        self.cs = os.path.join(self.root, "crowdsec")
+        for d in (self.mc + "/data/conf/postfix", self.mc + "/data/assets/ssl/example.org", self.ngx + "/sites", self.cs + "/acquis.d", self.cs + "/scenarios", self.cs + "/appsec-configs"):
+            os.makedirs(d)
+        self.conf = os.path.join(self.mc, "mailcow.conf")
+        with open(self.conf, "w") as f:
+            f.write(self.NOW)  # SKIP_CLAMD=y is the admin's own later change
+        with open(self.conf + ".cowsec-bak-20260101000000", "w") as f:
+            f.write(self.BEFORE)
+        with open(self.mc + "/data/conf/postfix/extra.cf", "w") as f:
+            f.write("smtpd_banner = moo\n# BEGIN cowsec-sni (managed by CowSec)\ntls_server_sni_maps = hash:/opt/postfix/conf/cowsec_sni.map\n# END cowsec-sni\n")
+        with open(self.mc + "/data/conf/postfix/cowsec_sni.map", "w") as f:
+            f.write("example.org /etc/ssl/mail/example.org/key.pem /etc/ssl/mail/example.org/cert.pem\n")
+        with open(self.mc + "/data/assets/ssl/example.org/cert.pem", "w") as f:
+            f.write("CERT\n")
+        with open(self.ngx + "/sites/cowsec-mailcow.conf", "w") as f:
+            f.write("proxy_pass https://127.0.0.1:8443;\n")
+        self.patches = [mock.patch.object(se, "NGX", self.ngx), mock.patch.object(se, "CS_DIR", self.cs),
+                        mock.patch.object(se, "SNAPSHOT_POINTER", os.path.join(self.root, "no-snapshot")),
+                        mock.patch.object(se, "ADOPTED_PREFIX", os.path.join(self.root, "adopted-")),
+                        mock.patch.object(se, "ROOT", os.path.join(self.root, "sys")),
+                        mock.patch.object(se, "APPSEC_ACQUIS", self.cs + "/acquis.d/cowsec-appsec.yaml"),
+                        mock.patch.object(se, "APPSEC_CONFIG_FILE", self.cs + "/appsec-configs/cowsec-mail-waf.yaml"),
+                        mock.patch.object(se, "APPSEC_WATCH_SCENARIO", self.cs + "/scenarios/cowsec-appsec-watch.yaml"),
+                        mock.patch.object(se, "UNINSTALLED", os.path.join(self.root, "uninstalled")),
+                        mock.patch.object(se, "COWSEC_FILES", ()), mock.patch.object(se, "COWSEC_UNITS", ()),
+                        mock.patch.object(se, "find_mailcow", return_value=self.mc),
+                        mock.patch.object(se, "run", return_value=(0, "")),
+                        mock.patch.object(se, "mailcow_answers", return_value=True)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_detach_reverts_only_cowsec_keys(self):
+        se.detach_mailcow(FakeRunner(), self.mc)
+        kv = se.read_kv(self.conf)
+        for k, v in {"HTTP_PORT": "80", "HTTP_BIND": "", "HTTPS_PORT": "443", "HTTPS_BIND": "", "SKIP_LETS_ENCRYPT": "n",
+                     "API_KEY": "", "API_ALLOW_FROM": "", "ADDITIONAL_SAN": ""}.items():
+            self.assertEqual(kv.get(k), v, k)
+        self.assertEqual(kv["SKIP_CLAMD"], "y", "the admin's own later change must survive")
+        self.assertEqual(read(self.mc + "/data/conf/postfix/extra.cf"), "smtpd_banner = moo\n")
+        self.assertFalse(os.path.exists(self.mc + "/data/conf/postfix/cowsec_sni.map"))
+        self.assertFalse(os.path.exists(self.mc + "/data/assets/ssl/example.org"), "CowSec's per-domain certs would expire unrenewed")
+
+    def test_never_touched_means_left_alone(self):
+        os.remove(self.conf + ".cowsec-bak-20260101000000")
+        se.detach_mailcow(FakeRunner(), self.mc)
+        self.assertEqual(read(self.conf), self.NOW)
+
+    def test_8081_is_not_brought_back(self):
+        with open(self.conf + ".cowsec-bak-20260101000000", "w") as f:
+            f.write(self.BEFORE.replace("HTTP_PORT=80", "HTTP_PORT=8081").replace("HTTP_BIND=\n", "HTTP_BIND=127.0.0.1\n"))
+        se.detach_mailcow(FakeRunner(), self.mc)
+        self.assertEqual(se.read_kv(self.conf)["HTTP_PORT"], "8180")
+
+    def test_uninstall_standard_mailcow(self):
+        with open(se.APPSEC_CONFIG_FILE, "w") as f:
+            f.write("name: cowsec/mail-waf\n")
+        r = FakeRunner()
+        with mock.patch.object(se, "compose", return_value=(0, "")) as comp:
+            res = se.uninstall(r)
+        self.assertFalse(res["kept_edge"])
+        self.assertEqual(se.read_kv(self.conf)["HTTPS_PORT"], "443")
+        self.assertFalse(os.path.exists(self.ngx + "/sites/cowsec-mailcow.conf"))
+        self.assertIn(["systemctl", "disable", "--now", "openresty"], r.cmds, "the edge must give 80/443 back")
+        self.assertFalse(os.path.exists(se.APPSEC_CONFIG_FILE))
+        self.assertTrue(os.path.exists(se.UNINSTALLED))
+        comp.assert_called_with(self.mc, ["up", "-d"], r, check=False)
+
+    def test_uninstall_puts_back_a_hand_built_edge(self):
+        # before CowSec: mailcow behind the admin's own OpenResty, on the forbidden 8081
+        with open(self.conf + ".cowsec-bak-20260101000000", "w") as f:
+            f.write(self.BEFORE.replace("HTTP_PORT=80", "HTTP_PORT=8081").replace("HTTP_BIND=\n", "HTTP_BIND=127.0.0.1\n")
+                    .replace("HTTPS_PORT=443", "HTTPS_PORT=8443").replace("HTTPS_BIND=\n", "HTTPS_BIND=127.0.0.1\n"))
+        adopted = os.path.join(self.root, "adopted-20260101000000")
+        os.makedirs(adopted)
+        site = os.path.join(self.root, "sys", self.ngx.strip("/"), "sites", "mail.conf")
+        with open(os.path.join(adopted, site[len(os.path.join(self.root, "sys")) + 1:].replace("/", "__")), "w") as f:
+            f.write("location /.well-known/ { proxy_pass http://127.0.0.1:8081; }\n")
+        r = FakeRunner()
+        with mock.patch.object(se, "ROOT", "/"), mock.patch.object(se, "compose", return_value=(0, "")):
+            res = se.uninstall(r)
+        self.assertTrue(res["kept_edge"], "the admin's own edge should serve mailcow again")
+        self.assertIn("127.0.0.1:8180", read(self.ngx + "/sites/mail.conf"))
+        kv = se.read_kv(self.conf)
+        self.assertEqual((kv["HTTP_PORT"], kv["HTTPS_PORT"], kv["HTTPS_BIND"]), ("8180", "8443", "127.0.0.1"))
+        self.assertNotIn(["systemctl", "disable", "--now", "openresty"], r.cmds)
+
+    def test_hand_back_fails_loudly(self):
+        with mock.patch.object(se, "compose", return_value=(0, "")), mock.patch.object(se, "mailcow_answers", return_value=False):
+            with self.assertRaises(se.StepError):
+                se.uninstall(FakeRunner())
+        self.assertFalse(os.path.exists(se.UNINSTALLED), "a failed hand-back must not be marked done")

@@ -1,6 +1,18 @@
 #!/bin/sh
 set -e
 if [ "$1" = "remove" ]; then
+    # Removing the package hands mailcow back to its own settings first, so nothing CowSec set up
+    # (certificate renewals, ban enforcement, the edge) is left half-working without it.
+    if [ -e /var/lib/cowsec/uninstalled ] || [ "${COWSEC_FORCE_REMOVE:-}" = "1" ]; then
+        :
+    elif [ -e /var/lib/cowsec/setup-complete ] || [ -e /var/lib/cowsec/pre-install-snapshot ] || ls /etc/systemd/system/cowsec-*.timer >/dev/null 2>&1; then
+        echo "cowsec: handing mailcow back to its own settings before removing CowSec..."
+        if ! /usr/sbin/cowsec-setup uninstall --yes; then
+            echo "cowsec: the hand-back didn't finish, so CowSec stays installed. See the messages above," >&2
+            echo "cowsec: run 'sudo cowsec-setup uninstall' again, or remove anyway with COWSEC_FORCE_REMOVE=1." >&2
+            exit 1
+        fi
+    fi
     systemctl disable --now cowsec >/dev/null 2>&1 || true
 fi
 exit 0

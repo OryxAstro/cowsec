@@ -445,7 +445,8 @@ def restore_mailcow(r, path=None):
                 shutil.copy2(cur, cur + ".before-restore-" + time.strftime("%Y%m%d%H%M%S"))
         r.log("stopping the OpenResty edge so mailcow's web server can take 80/443 again")
         r.sh(["systemctl", "disable", "--now", "openresty"], check=False)
-        r.sh(["systemctl", "disable", "--now", "cowsec-cert-watch.path"], check=False)
+        netfilter_handback(r)
+        stop_cowsec_timers(r)  # or the next renewal would put CowSec's certificates back
         ssl = os.path.join(mc, "data/assets/ssl")
         if any(m.name.startswith("mailcow/data/assets/ssl/") for m in members) and os.path.isdir(ssl):
             shutil.move(ssl, ssl + ".before-restore-" + time.strftime("%Y%m%d%H%M%S"))
@@ -461,6 +462,243 @@ def restore_mailcow(r, path=None):
     r.log("restarting mailcow with its original settings")
     compose(mc, ["up", "-d"], r, check=False)
     return path
+
+
+# ---------------------------------------------------------------- uninstall
+
+# Everything CowSec adds to a server outside its own package, so uninstalling can take it all away.
+COWSEC_UNITS = ("cowsec-certs.timer", "cowsec-certs.service", "cowsec-cert-watch.path", "cowsec-cert-watch.service",
+                "cowsec-netfilter.timer", "cowsec-netfilter.service", "cowsec-cloudflare-realip.timer", "cowsec-cloudflare-realip.service")
+COWSEC_FILES = ("/etc/letsencrypt/renewal-hooks/deploy/cowsec-openresty.sh", LIB_DIR + "/cowsec-cloudflare-realip", LIB_DIR + "/lego",
+                "/etc/chrony/conf.d/cowsec-ptp.conf", "/etc/modules-load.d/cowsec-ptp_kvm.conf")
+# the mailcow.conf keys CowSec changes; uninstalling puts back their values from before CowSec
+MAILCOW_KEYS = ("HTTP_PORT", "HTTP_BIND", "HTTPS_PORT", "HTTPS_BIND", "SKIP_LETS_ENCRYPT", "API_KEY", "API_ALLOW_FROM", "ADDITIONAL_SAN")
+MAILCOW_DEFAULTS = {"HTTP_PORT": "80", "HTTP_BIND": "", "HTTPS_PORT": "443", "HTTPS_BIND": "", "SKIP_LETS_ENCRYPT": "n"}
+UNINSTALLED = os.path.join(STATE_DIR, "uninstalled")
+ADOPTED_PREFIX = "/root/cowsec-adopted-"   # where step_adopt keeps what it took over
+ROOT = "/"
+
+
+def stop_cowsec_timers(r):
+    """Stops CowSec's renewals and syncs, so nothing re-applies its settings to mailcow."""
+    for u in COWSEC_UNITS:
+        r.sh(["systemctl", "disable", "--now", u], check=False, quiet=True)
+
+
+def netfilter_handback(r):
+    """mailcow's netfilter enforces its own bans again (CowSec may have taken that over)."""
+    if not os.path.exists(ETC_DIR + "/mailcow.env"):
+        return
+    try:
+        s = f2b_settings(mailcow_api("GET", "get/fail2ban"))
+        if s["manage_external"]:
+            s["manage_external"] = 0
+            mailcow_api("POST", "edit/fail2ban", {"items": ["none"], "attr": s})
+            r.log("mailcow's netfilter enforces its own bans again")
+    except Exception as e:  # noqa: BLE001 - mailcow may be down; say what to check
+        r.log("warning: couldn't hand bans back to mailcow's netfilter (%s). In mailcow: Configuration > Netfilter, untick 'managed externally'." % e)
+    rc, out = run(["cscli", "decisions", "list", "-o", "json", "--limit", "0"])
+    for alert in (json.loads(out) if rc == 0 and out.strip() not in ("", "null") else []) or []:
+        for d in alert.get("decisions") or []:
+            if d.get("scenario") == NETFILTER_REASON:
+                run(["cscli", "decisions", "delete", "--id", str(d["id"])])
+
+
+def mailcow_conf_before(mc):
+    """mailcow.conf as it was before CowSec changed anything: the install snapshot, else the oldest
+    backup CowSec made of it (for a mailcow CowSec installed, that is mailcow's generated file)."""
+    import tarfile
+    snap = open(SNAPSHOT_POINTER).read().strip() if os.path.exists(SNAPSHOT_POINTER) else ""
+    if snap and os.path.isfile(snap):
+        try:
+            with tarfile.open(snap, "r:gz") as tar:
+                f = tar.extractfile("mailcow/mailcow.conf")
+                if f:
+                    out = {}
+                    for line in f.read().decode(errors="replace").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            out[k.strip()] = v.strip().strip('"').strip("'")
+                    return out, "the snapshot taken at install (%s)" % snap
+        except (OSError, KeyError, tarfile.TarError):
+            pass
+    baks = sorted(glob.glob(os.path.join(mc, "mailcow.conf.cowsec-bak-*")))
+    if baks:
+        return read_kv(baks[0]), "CowSec's first backup of it (%s)" % baks[0]
+    return None, "mailcow's defaults"
+
+
+def restore_adopted(r):
+    """Puts back what the install took over from an earlier hand-built setup (its OpenResty sites,
+    certbot hooks, log sources, clock config), from the newest /root/cowsec-adopted-* folder."""
+    dirs = sorted(glob.glob(ADOPTED_PREFIX + "*"))
+    restored = []
+    if not dirs:
+        return restored
+    for f in sorted(os.listdir(dirs[-1])):
+        src, dst = os.path.join(dirs[-1], f), os.path.join(ROOT, f.replace("__", "/"))
+        if os.path.isfile(src) and not os.path.basename(dst).startswith("cowsec-"):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            restored.append(dst)
+            r.log("put back %s (from %s)" % (dst, dirs[-1]))
+    for t in ("certbot.timer", "mailcow-cert-sync.timer", "openresty-cloudflare-realip.timer"):
+        if run(["systemctl", "cat", t])[0] == 0:
+            r.sh(["systemctl", "enable", "--now", t], check=False, quiet=True)
+            r.log("turned %s back on" % t)
+    return restored
+
+
+def detach_mailcow(r, mc):
+    """mailcow as it was before CowSec: its web ports, certificates and API settings, with
+    CowSec's postfix SNI map and per-domain certificate folders removed. Later changes by the
+    admin or ./update.sh stay, because only the keys CowSec changed are reverted."""
+    conf_path = os.path.join(mc, "mailcow.conf")
+    conf = read_kv(conf_path)
+    before, source = mailcow_conf_before(mc)
+    want = {}
+    for k in MAILCOW_KEYS if before is not None else ():  # no snapshot or backup: CowSec never changed it
+        v = before.get(k)
+        if v is None:
+            v = MAILCOW_DEFAULTS.get(k, "")
+        if k == "HTTP_PORT" and v == str(OLD_EDGE_MAILCOW_HTTP):
+            v = str(EDGE_MAILCOW_HTTP)  # mailcow forbids 8081 (its nginx uses it inside the container)
+        if conf.get(k, "") != v:
+            want[k] = v
+    if want:
+        backup(conf_path, r)
+        set_kv(conf_path, want, r)
+        r.log("mailcow.conf: %s back as in %s" % (", ".join(sorted(want)), source))
+    # CowSec's SNI map for postfix, and the per-domain certificate folders it fills
+    pf = os.path.join(mc, "data/conf/postfix")
+    sni = os.path.join(pf, "cowsec_sni.map")
+    folders = set()
+    if os.path.exists(sni):
+        for line in open(sni).read().splitlines():
+            m = re.search(r"/etc/ssl/mail/([^/\s]+)/cert\.pem", line)
+            if m:
+                folders.add(m.group(1))
+        os.remove(sni)
+        for ext in (".db", ".lmdb"):
+            if os.path.exists(sni + ext):
+                os.remove(sni + ext)
+    extra = os.path.join(pf, "extra.cf")
+    if os.path.exists(extra) and "cowsec-sni" in open(extra).read():
+        cur = re.sub(r"\n?# BEGIN cowsec-sni.*?# END cowsec-sni\n?", "\n", open(extra).read(), flags=re.S).strip("\n")
+        write(extra, cur + ("\n" if cur else ""), r=r)
+        r.log("postfix: removed CowSec's SNI map from extra.cf")
+    for d in sorted(folders):
+        path = os.path.join(mc, "data/assets/ssl", d)
+        if re.fullmatch(r"[A-Za-z0-9.-]+", d) and os.path.isdir(path):
+            shutil.rmtree(path)
+            r.log("removed CowSec's certificate folder data/assets/ssl/%s (mailcow issues its own again)" % d)
+    return read_kv(conf_path)
+
+
+def mailcow_answers(port, timeout=180):
+    """True once mailcow's web server answers HTTPS on 127.0.0.1:port."""
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE
+    end = time.time() + timeout
+    while time.time() < end:
+        try:
+            urllib.request.urlopen(urllib.request.Request("https://127.0.0.1:%s/" % port, method="HEAD"), context=ctx, timeout=5)
+            return True
+        except urllib.error.HTTPError:
+            return True  # any HTTP answer means nginx is up
+        except (urllib.error.URLError, OSError):
+            time.sleep(3)
+    return False
+
+
+def uninstall(r):
+    """Removes everything CowSec added and leaves mailcow working on its own: ports, certificates
+    and API settings as before CowSec (or mailcow's defaults), its netfilter enforcing its own bans,
+    and an earlier hand-built edge put back if CowSec took one over. CrowdSec keeps running on its
+    stock settings. Raises StepError if mailcow doesn't come back, so a package removal stops."""
+    mc = find_mailcow()
+    netfilter_handback(r)              # while CowSec's API key still works
+    stop_cowsec_timers(r)
+    adopted = restore_adopted(r)
+    conf = detach_mailcow(r, mc) if mc else {}
+    for f in [x for x in adopted if x.startswith(NGX + "/sites/")]:
+        txt = open(f).read()
+        if "127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP in txt:
+            write(f, txt.replace("127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP, "127.0.0.1:%d" % EDGE_MAILCOW_HTTP), r=r)
+            r.log("edge: %s now uses mailcow's port %d (8081 is reserved by mailcow)" % (f, EDGE_MAILCOW_HTTP))
+    # the edge: keep OpenResty only if mailcow still expects a proxy and one was put back
+    proxied = conf.get("HTTPS_BIND", "") in ("127.0.0.1", "::1", "localhost")
+    for f in glob.glob(NGX + "/sites/cowsec-*.conf") + [NGX + "/cowsec_mailcow_proxy.conf"]:
+        if os.path.exists(f):
+            os.remove(f)
+            r.log("edge: removed %s" % f)
+    baks = sorted(glob.glob(NGX + "/nginx.conf.cowsec-bak-*"))
+    if baks:
+        shutil.copy2(baks[0], NGX + "/nginx.conf")
+        r.log("edge: put back OpenResty's nginx.conf from before CowSec")
+    keep_edge = False
+    if mc and proxied and any(x.startswith(NGX + "/sites/") for x in adopted):
+        keep_edge = run([OPENRESTY + "/bin/openresty", "-t", "-q"])[0] == 0
+        if not keep_edge:
+            r.log("edge: your earlier OpenResty setup doesn't pass its config test; mailcow takes 80/443 itself instead")
+    if mc and proxied and not keep_edge:
+        set_kv(os.path.join(mc, "mailcow.conf"), {k: MAILCOW_DEFAULTS[k] for k in ("HTTP_PORT", "HTTP_BIND", "HTTPS_PORT", "HTTPS_BIND")}, r)
+        r.log("mailcow.conf: web server back on 80/443 (nothing else in front of it now)")
+    if keep_edge:
+        r.sh(["systemctl", "restart", "openresty"], check=False)
+        r.log("edge: your earlier OpenResty setup serves mailcow again")
+        if run(["systemctl", "cat", "certbot.timer"])[0] == 0:
+            r.sh(["certbot", "renew", "--no-random-sleep-on-renew"], check=False)  # it was paused while CowSec renewed
+    else:
+        r.sh(["systemctl", "disable", "--now", "openresty"], check=False, quiet=True)
+    # CrowdSec: CowSec's own pieces go, CrowdSec stays
+    removed = {}
+    own_appsec = keep_edge and not any(x.startswith(CS_DIR + "/acquis.d/") for x in adopted)
+    if own_appsec and os.path.exists(APPSEC_ACQUIS):
+        # the earlier edge still needs a WAF listener: keep CowSec's, on CrowdSec's default rules
+        removed[APPSEC_ACQUIS] = open(APPSEC_ACQUIS).read()
+        write(APPSEC_ACQUIS, re.sub(r"(?m)^(\s*appsec_config:\s*)\S+", r"\1crowdsecurity/appsec-default", removed[APPSEC_ACQUIS]), r=None, keep_backup=False)
+    for f in (APPSEC_CONFIG_FILE, APPSEC_WATCH_SCENARIO, CS_DIR + "/scenarios/cowsec-auth-abroad.yaml") + (() if own_appsec else (APPSEC_ACQUIS,)):
+        if os.path.exists(f):
+            removed[f] = open(f).read()
+            os.remove(f)
+    prof = CS_DIR + "/profiles.yaml"
+    if os.path.exists(prof + ".pre-cowsec"):
+        removed[prof] = open(prof).read()
+        shutil.copy2(prof + ".pre-cowsec", prof)
+    if removed:
+        if run(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"])[0] == 0:
+            r.sh(["systemctl", "reload", "crowdsec"], check=False)
+            r.log("CrowdSec: back on its stock ban profile; CowSec's WAF config and scenarios removed")
+        else:
+            for f, txt in removed.items():
+                write(f, txt, r=None, keep_backup=False)
+            r.log("warning: CrowdSec's config test failed without CowSec's files, so they were left in place")
+    for f in COWSEC_FILES:
+        if os.path.exists(f):
+            os.remove(f)
+    for u in COWSEC_UNITS:
+        p = "/etc/systemd/system/" + u
+        if os.path.exists(p):
+            os.remove(p)
+    r.sh(["systemctl", "daemon-reload"], check=False, quiet=True)
+    if run(["systemctl", "is-active", "--quiet", "chrony"])[0] == 0:
+        r.sh(["systemctl", "restart", "chrony"], check=False, quiet=True)
+    for f in ("setup-complete", "setup-token"):
+        if os.path.exists(os.path.join(STATE_DIR, f)):
+            os.remove(os.path.join(STATE_DIR, f))
+    if mc:
+        r.log("restarting mailcow with its own settings")
+        compose(mc, ["up", "-d"], r, check=False)
+        port = read_kv(os.path.join(mc, "mailcow.conf")).get("HTTPS_PORT", "443")
+        if not mailcow_answers(port):
+            raise StepError("mailcow's web server didn't come back on port %s. CowSec is detached, but check "
+                            "'docker compose ps' in %s before removing anything else" % (port, mc))
+        r.log("mailcow answers on port %s" % port)
+    write(UNINSTALLED, time.strftime("%Y-%m-%dT%H:%M:%S%z") + "\n", 0o600)
+    return {"mailcow": mc, "kept_edge": keep_edge, "adopted": bool(adopted)}
 
 
 # ---------------------------------------------------------------- mailcow discovery
@@ -854,7 +1092,7 @@ def step_adopt(c, r, ctx):
     """Takes over earlier hand-built pieces so they don't clash with what CowSec installs.
     Everything moved or changed is kept under /root/cowsec-adopted-<time>/."""
     d = detect_existing()
-    bdir = "/root/cowsec-adopted-%s" % time.strftime("%Y%m%d%H%M%S")
+    bdir = ADOPTED_PREFIX + time.strftime("%Y%m%d%H%M%S")
     def keep(path):
         os.makedirs(bdir, mode=0o700, exist_ok=True)
         dst = os.path.join(bdir, path.strip("/").replace("/", "__"))

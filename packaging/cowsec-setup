@@ -13,6 +13,7 @@
   cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
   cowsec-setup appsec-curate   rebuild the mail WAF (mail-stack rules block, the rest watch for scanners)
   cowsec-setup fix-mailcow-port  move mailcow's local web port off 8081 (installs before 0.3.10)
+  cowsec-setup uninstall      hand mailcow back to its own settings and remove everything CowSec added
   cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys
@@ -143,6 +144,26 @@ def appsec_curate(if_default):
         print(f"{G}mail WAF: {c['block']} rules block, {c['watch']} watch for scanners, {c['off']} off.{N}")
 
 
+def uninstall(yes):
+    if os.path.exists(se.UNINSTALLED):
+        print("CowSec is already uninstalled from this server. Remove the package with: sudo apt purge cowsec")
+        return
+    print(f"{B}Uninstall CowSec{N}")
+    print("  - mailcow gets its own settings back: web ports, certificates (its own Let's Encrypt) and API key,")
+    print("    as they were before CowSec, and its netfilter enforces its own bans again")
+    print("  - an earlier hand-built OpenResty setup that CowSec took over is put back")
+    print("  - CowSec's timers, certificates, edge config and CrowdSec extras are removed")
+    print("  - mailcow restarts (mail is offline for a minute or two); CrowdSec keeps protecting the server")
+    if not yes and input("Type UNINSTALL to continue: ").strip() != "UNINSTALL":
+        sys.exit("Cancelled.")
+    res = se.uninstall(se.Runner(echo=True))
+    print(f"{G}CowSec is detached; mailcow runs on its own.{N}")
+    if res["kept_edge"]:
+        print("  Your earlier OpenResty setup is back in front of mailcow.")
+    print("  Remove the package with: sudo apt purge cowsec")
+    print("  CrowdSec, its bouncers, OpenResty and cloudflared stay installed; remove them with apt if you want.")
+
+
 def fix_mailcow_port():
     res = se.fix_mailcow_http_port(se.Runner(echo=True))
     if not res["changed"]:
@@ -197,6 +218,7 @@ def main():
     sub.add_parser("reset-wizard"); sub.add_parser("revert-edge")
     rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true")
     ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy"); sub.add_parser("fix-mailcow-port")
+    un = sub.add_parser("uninstall"); un.add_argument("--yes", action="store_true")
     args = p.parse_args()
     need_root()
     try:
@@ -222,6 +244,8 @@ def main():
             migrate_legacy()
         elif args.cmd == "fix-mailcow-port":
             fix_mailcow_port()
+        elif args.cmd == "uninstall":
+            uninstall(args.yes)
     except se.StepError as e:
         sys.exit(f"{R}error:{N} {e}")
 

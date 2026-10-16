@@ -84,6 +84,7 @@ sudo cowsec-setup access lan|wan|tunnel|local ...   # console access
 sudo cowsec-setup reset-wizard                      # run the browser wizard again
 sudo cowsec-setup appsec-curate                     # rebuild the mail WAF (also runs after hub updates)
 sudo cowsec-setup fix-mailcow-port                  # move mailcow's local web port off 8081 (runs on upgrade)
+sudo cowsec-setup uninstall                         # hand mailcow back to its own settings (apt remove runs it)
 ```
 
 Re-running the wizard is safe: every step is idempotent, and files are backed up before they change.
@@ -110,9 +111,20 @@ CrowdSec and the firewall bouncer keep running, so the server stays protected. T
 ## Uninstalling
 
 ```bash
-sudo cowsec-setup restore-mailcow      # mailcow's settings as before CowSec (or just revert-edge)
-sudo apt remove cowsec                 # stops the console; CrowdSec keeps protecting you
-sudo apt purge cowsec                  # also removes /etc/cowsec and /var/lib/cowsec
+sudo apt remove cowsec    # hands mailcow back to its own settings, then removes CowSec
+sudo apt purge cowsec     # also removes /etc/cowsec and /var/lib/cowsec
 ```
 
-CrowdSec, its bouncers, OpenResty and cloudflared are separate packages and stay installed. Remove them with apt if you no longer want them. To return to CrowdSec's stock ban profile, run `sudo cp /etc/crowdsec/profiles.yaml.pre-cowsec /etc/crowdsec/profiles.yaml && sudo rm /etc/crowdsec/scenarios/cowsec-auth-abroad.yaml && sudo systemctl reload crowdsec`.
+Removing the package runs `sudo cowsec-setup uninstall` first (you can run it yourself beforehand; it asks you to type UNINSTALL). It leaves mailcow working on its own:
+- **mailcow.conf:** only the keys CowSec changed go back to their values from before CowSec. Those are the web ports and binds, `SKIP_LETS_ENCRYPT` (so mailcow renews its own certificates again), the API key and its allowed addresses, and `ADDITIONAL_SAN`. The values come from the install snapshot, or CowSec's first backup of the file. Anything you or `./update.sh` changed since stays as it is. A mailcow that CowSec installed gets mailcow's defaults: ports 80/443 and its own Let's Encrypt.
+- **Postfix:** CowSec's SNI map is removed from `extra.cf`, along with its per-domain certificate folders, which would otherwise expire unrenewed. The current main certificate stays until mailcow replaces it, so nothing is briefly expired.
+- **Bans:** mailcow's netfilter enforces its own bans again ("managed externally" is turned off), and the netfilter bans CowSec copied into CrowdSec are removed.
+- **The edge:**
+  - If CowSec took over an earlier hand-built setup (OpenResty sites, certbot renewals and hooks, log sources, clock settings), those are put back from `/root/cowsec-adopted-*`, and your OpenResty serves mailcow again. If that setup used port 8081, it moves to 8180, because mailcow reserves 8081.
+  - Otherwise OpenResty is stopped and mailcow's own web server takes ports 80 and 443 again.
+- **Timers and extras:** CowSec's certificate renewals, netfilter sync, Cloudflare real-IP updates, deploy hooks and clock settings are removed. Its mail WAF config and scenarios are removed from CrowdSec, and CrowdSec's own ban profile comes back.
+- mailcow restarts, which takes mail offline for a minute or two. If its web server doesn't answer afterwards, the removal stops and says so, rather than leaving a half-detached server. Run `sudo cowsec-setup uninstall` again once it's fixed, or remove anyway with `COWSEC_FORCE_REMOVE=1 sudo -E apt remove cowsec`.
+
+CrowdSec, its firewall bouncer, OpenResty and cloudflared are separate packages and stay installed, so the server stays protected. Remove them with apt if you no longer want them. The install snapshot stays in `/var/backups/cowsec`.
+
+To go back to exactly the files from install day instead (everything in `mailcow.conf`, not just CowSec's keys), use `sudo cowsec-setup restore-mailcow` before removing the package.

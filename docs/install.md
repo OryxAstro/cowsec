@@ -37,7 +37,8 @@ CowSec is built to be added to a working mailcow server, and it was developed an
 - Before the first change, CowSec saves mailcow's settings and certificates (`mailcow.conf`, `extra.cf`, `docker-compose.override.yml`, `data/assets/ssl`), CrowdSec's configuration and the current firewall rules to `/var/backups/cowsec/pre-install-<time>.tar.gz`.
 - Every file it edits is also backed up next to the original as `<file>.cowsec-bak-<time>`.
 - If the OpenResty edge can't start, mailcow's web settings are put back automatically.
-- `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was from the snapshot at any time. It stops the edge, restores those files, and restarts mailcow. CrowdSec keeps protecting the server; see [Uninstalling](maintenance.md#uninstalling) to remove it too.
+- `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was from the snapshot at any time. It stops the edge, restores those files, and restarts mailcow. CrowdSec keeps protecting the server.
+- `sudo apt remove cowsec` hands mailcow back to its own settings automatically before removing CowSec: ports, certificates, ban enforcement and API key as before, with nothing left to expire or fail later. See [Uninstalling](maintenance.md#uninstalling).
 
 ## Install the package
 

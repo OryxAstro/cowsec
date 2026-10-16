@@ -2,6 +2,7 @@
 set -e
 if [ "$1" = "configure" ]; then
     install -d -m 0700 /var/lib/cowsec /etc/cowsec
+    rm -f /var/lib/cowsec/uninstalled   # installed again after an uninstall: start afresh
     # a hand-installed CowSec's unit in /etc/systemd/system would override the package's
     /usr/sbin/cowsec-setup migrate-legacy || echo "cowsec: could not migrate the earlier hand-installed CowSec; see 'cowsec-setup migrate-legacy'" >&2
     # mail WAF: switch CowSec's AppSec engine from CrowdSec's catch-all default (kept if CrowdSec rejects it)
