@@ -3,6 +3,15 @@
 </p>
 
 <p align="center">
+  <a href="https://buymeacoffee.com/OryxAstro"><img src="docs/assets/buttons/buymeacoffee.svg" alt="Buy Bessie a latte on Buy Me a Coffee" height="56"></a>
+  <a href="https://ko-fi.com/OryxAstro"><img src="docs/assets/buttons/kofi.svg" alt="Buy Bessie some hay on Ko-fi" height="56"></a>
+  <a href="https://github.com/OryxAstro/cowsec/stargazers"><img src="docs/assets/buttons/star.svg" alt="Star the repo" height="56"></a>
+  <!-- once GitHub Sponsors is approved: <a href="https://github.com/sponsors/OryxAstro"><img src="docs/assets/buttons/sponsor.svg" alt="Sponsor the herd on GitHub Sponsors" height="56"></a> -->
+</p>
+<p align="center"><a href="https://github.com/OryxAstro"><img alt="Follow the herd" src="https://img.shields.io/github/followers/OryxAstro?label=Follow%20the%20herd&style=social"></a></p>
+<p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
+
+<p align="center">
   <img alt="Debian and Ubuntu" src="https://img.shields.io/badge/Debian%2011--13%20·%20Ubuntu%2022.04%2F24.04-0b1530?style=for-the-badge&logo=debian&logoColor=a5b4fc&labelColor=050a18">
   <img alt="mailcow-dockerized" src="https://img.shields.io/badge/mailcow--dockerized-0b1530?style=for-the-badge&logo=docker&logoColor=7dd3fc&labelColor=050a18">
   <img alt="CrowdSec 1.7+" src="https://img.shields.io/badge/CrowdSec-1.7%2B-0b1530?style=for-the-badge&logoColor=6ee7b7&labelColor=050a18">
@@ -21,15 +30,6 @@
   <a href="docs/security.md">Security model</a> ·
   <a href="docs/troubleshooting.md">Troubleshooting</a>
 </p>
-
-<p align="center">
-  <a href="https://buymeacoffee.com/OryxAstro"><img src="docs/assets/buttons/buymeacoffee.svg" alt="Buy Bessie a latte on Buy Me a Coffee" height="56"></a>
-  <a href="https://ko-fi.com/OryxAstro"><img src="docs/assets/buttons/kofi.svg" alt="Buy Bessie some hay on Ko-fi" height="56"></a>
-  <a href="https://github.com/OryxAstro/cowsec/stargazers"><img src="docs/assets/buttons/star.svg" alt="Star the repo" height="56"></a>
-  <!-- once GitHub Sponsors is approved: <a href="https://github.com/sponsors/OryxAstro"><img src="docs/assets/buttons/sponsor.svg" alt="Sponsor the herd on GitHub Sponsors" height="56"></a> -->
-</p>
-<p align="center"><a href="https://github.com/OryxAstro"><img alt="Follow the herd" src="https://img.shields.io/github/followers/OryxAstro?label=Follow%20the%20herd&style=social"></a></p>
-<p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
 
 ---
 
