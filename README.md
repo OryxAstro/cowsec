@@ -23,10 +23,10 @@
 </p>
 
 <p align="center">
-  <a href="https://buymeacoffee.com/OryxAstro"><img alt="Buy Bessie a latte" src="https://img.shields.io/badge/Buy%20Bessie%20a%20latte-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=000000"></a>
-  <a href="https://ko-fi.com/OryxAstro"><img alt="Buy Bessie some hay on Ko-fi" src="https://img.shields.io/badge/Buy%20Bessie%20some%20hay-ff5e5b?style=for-the-badge&logo=kofi&logoColor=ffffff"></a>
-  <a href="https://github.com/OryxAstro"><img alt="Follow the herd" src="https://img.shields.io/github/followers/OryxAstro?label=Follow%20the%20herd&style=for-the-badge&logo=github&color=0b1530&labelColor=050a18"></a>
-  <a href="https://github.com/OryxAstro/cowsec/stargazers"><img alt="Star the repo" src="https://img.shields.io/github/stars/OryxAstro/cowsec?label=Stars&style=for-the-badge&logo=github&color=0b1530&labelColor=050a18"></a>
+  <a href="https://buymeacoffee.com/OryxAstro"><img src="docs/assets/buttons/buymeacoffee.svg" alt="Buy Bessie a latte on Buy Me a Coffee" height="56"></a>
+  <a href="https://ko-fi.com/OryxAstro"><img src="docs/assets/buttons/kofi.svg" alt="Buy Bessie some hay on Ko-fi" height="56"></a>
+  <a href="https://github.com/OryxAstro/cowsec/stargazers"><img src="docs/assets/buttons/star.svg" alt="Star the repo" height="56"></a>
+  <!-- once GitHub Sponsors is approved: <a href="https://github.com/sponsors/OryxAstro"><img src="docs/assets/buttons/sponsor.svg" alt="Sponsor the herd on GitHub Sponsors" height="56"></a> -->
 </p>
 <p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
 
@@ -177,8 +177,8 @@ CowSec is free and always will be. Bessie works the night shift, eats spammers f
 If CowSec saved you a weekend, a blocklisting or an awkward call from a customer, please toss a coin in the milk pail:
 
 <p align="center">
-  <a href="https://buymeacoffee.com/OryxAstro"><img alt="Buy Bessie a latte" src="https://img.shields.io/badge/☕%20Buy%20Bessie%20a%20latte-ffdd00?style=for-the-badge&logo=buymeacoffee&logoColor=000000"></a>
-  <a href="https://ko-fi.com/OryxAstro"><img alt="Buy Bessie some hay on Ko-fi" src="https://img.shields.io/badge/🌾%20Buy%20Bessie%20some%20hay-ff5e5b?style=for-the-badge&logo=kofi&logoColor=ffffff"></a>
+  <a href="https://buymeacoffee.com/OryxAstro"><img src="docs/assets/buttons/buymeacoffee.svg" alt="Buy Bessie a latte on Buy Me a Coffee" height="64"></a>
+  <a href="https://ko-fi.com/OryxAstro"><img src="docs/assets/buttons/kofi.svg" alt="Buy Bessie some hay on Ko-fi" height="64"></a>
 </p>
 
 Can't spare a coin? These are free and make her moo with joy:
