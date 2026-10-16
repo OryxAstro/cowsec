@@ -12,7 +12,7 @@
 <p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
 
 <p align="center">
-  <img alt="Debian and Ubuntu" src="https://img.shields.io/badge/Debian%2011--13%20·%20Ubuntu%2022.04%2F24.04-0b1530?style=for-the-badge&logo=debian&logoColor=a5b4fc&labelColor=050a18">
+  <img alt="Debian and Ubuntu" src="https://img.shields.io/badge/Debian%2012%2F13%20·%20Ubuntu%2022.04%2F24.04-0b1530?style=for-the-badge&logo=debian&logoColor=a5b4fc&labelColor=050a18">
   <img alt="mailcow-dockerized" src="https://img.shields.io/badge/mailcow--dockerized-0b1530?style=for-the-badge&logo=docker&logoColor=7dd3fc&labelColor=050a18">
   <img alt="CrowdSec 1.7+" src="https://img.shields.io/badge/CrowdSec-1.7%2B-0b1530?style=for-the-badge&logoColor=6ee7b7&labelColor=050a18">
   <img alt="amd64" src="https://img.shields.io/badge/arch-amd64-0b1530?style=for-the-badge&labelColor=050a18">

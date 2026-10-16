@@ -7,7 +7,7 @@
 This guide follows real installations: one on a fresh Debian 12 server already running a stock mailcow-dockerized, and one on a bare Debian 12 server where CowSec installed mailcow too. It goes from the package to a protected server with the console signed in. Every screenshot comes from that run. Domains and addresses are replaced with `example.com` and `192.0.2.x`.
 
 > [!TIP]
-> **Bare metal, VPS or VM: it all works the same.** CowSec needs Debian 11–13 or Ubuntu 22.04/24.04 (amd64). It protects the mailcow you already have, or installs mailcow for you on a clean server. On KVM guests (Proxmox and most VPSs) it can also sync the clock to the hypervisor.
+> **Bare metal, VPS or VM: it all works the same.** CowSec needs Debian 12/13 or Ubuntu 22.04/24.04 (amd64). It protects the mailcow you already have, or installs mailcow for you on a clean server. On KVM guests (Proxmox and most VPSs) it can also sync the clock to the hypervisor.
 
 ## Contents
 

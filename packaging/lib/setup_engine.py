@@ -901,8 +901,8 @@ def preflight():
     arch = os.uname().machine
     add("arch", "64-bit x86 (amd64)", "ok" if arch == "x86_64" else "fail", arch)
     osid, ver, code = os_release()
-    supported = (osid == "debian" and ver in ("11", "12", "13")) or (osid == "ubuntu" and ver in ("22.04", "24.04"))
-    add("os", "Supported OS (Debian 11-13, Ubuntu 22.04/24.04)", "ok" if supported else "warn", "%s %s (%s)" % (osid, ver, code))
+    supported = (osid == "debian" and ver in ("12", "13")) or (osid == "ubuntu" and ver in ("22.04", "24.04"))
+    add("os", "Supported OS (Debian 12/13, Ubuntu 22.04/24.04)", "ok" if supported else "warn", "%s %s (%s)" % (osid, ver, code))
     add("systemd", "systemd", "ok" if os.path.isdir("/run/systemd/system") else "fail")
     mc = mailcow_info()
     if mc["found"]:  # without mailcow, the fresh-install checks below cover Docker
@@ -993,6 +993,8 @@ def preflight():
             add("net-" + host, "Reach " + host, "ok")
         except OSError as e:
             add("net-" + host, "Reach " + host, "fail", str(e))
+    if openresty_blocked():
+        add("openresty-key", "OpenResty packages can be verified", "warn", OPENRESTY_BLOCKED_MSG)
     existing = detect_existing()
     labels = {"legacyCowsec": "Earlier hand-installed CowSec (already migrated by the package)", "certbot": "Existing certificates (%s)",
               "edgeSites": "Existing OpenResty sites (will be replaced, originals kept)", "cloudflareRealIP": "Existing Cloudflare real-IP setup",
@@ -1157,11 +1159,37 @@ def public_config(c):
     return p
 
 
+# Newest first. A repository that doesn't publish a release yet usually works with the one before.
+RELEASE_ORDER = {"debian": ["forky", "trixie", "bookworm"], "ubuntu": ["questing", "plucky", "noble", "jammy"]}
+
+
+def repo_codename(base, flavour, code, r=None):
+    """The release a package repository actually publishes for this system: this system's own
+    if it has one, otherwise the nearest older release (e.g. CrowdSec's packages for Debian 12
+    on Debian 13 until CrowdSec publishes a trixie section)."""
+    order = RELEASE_ORDER.get(flavour, [])
+    cands = [code] + (order[order.index(code) + 1:] if code in order else [c for c in order])
+    for cand in cands:
+        for name in ("InRelease", "Release"):
+            try:
+                req = urllib.request.Request("%s/dists/%s/%s" % (base.rstrip("/"), cand, name), method="HEAD",
+                                             headers={"User-Agent": "cowsec-setup"})
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    if resp.status == 200:
+                        if cand != code and r:
+                            r.log("%s has no %s release yet; using its %s packages" % (base, code, cand))
+                        return cand
+            except Exception:
+                continue
+    return code
+
+
 # ---------------------------------------------------------------- steps
 
 def step_crowdsec(c, r, ctx):
     osid, ver, code = os_release()
     flavour = "ubuntu" if osid == "ubuntu" else "debian"
+    code = repo_codename("https://packagecloud.io/crowdsec/crowdsec/" + flavour, flavour, code, r)
     apt_key_repo(r, "crowdsec_crowdsec", "https://packagecloud.io/crowdsec/crowdsec/gpgkey",
                  "deb [signed-by=/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg] https://packagecloud.io/crowdsec/crowdsec/%s/ %s main" % (flavour, code),
                  "/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg")
@@ -1326,10 +1354,29 @@ def ensure_resty_http(r):
         raise StepError("could not install lua-resty-http")
 
 
+def openresty_blocked():
+    """Debian 13's apt verifies signatures with sqv, which has rejected SHA-1-bound keys since
+    2026-02-01. OpenResty's repository key is still SHA-1-bound (openresty/openresty#1072), so
+    apt refuses the repository. Weakening apt's policy for every repository isn't acceptable,
+    so CowSec leaves the edge out there until OpenResty rotates its key."""
+    osid, ver, _ = os_release()
+    if osid != "debian" or not ver.isdigit() or int(ver) < 13 or not os.path.exists("/usr/bin/sqv"):
+        return False
+    return os.environ.get("COWSEC_OPENRESTY_KEY_FIXED") != "1"
+
+
+OPENRESTY_BLOCKED_MSG = ("Debian 13's apt rejects OpenResty's package signing key because it still uses SHA-1 "
+                         "(openresty/openresty#1072). The edge and WAF can't be installed until OpenResty updates its key; "
+                         "CrowdSec, the firewall bouncer, the ban policy and the console all work without it.")
+
+
 def step_edge(c, r, ctx):
+    if openresty_blocked():
+        raise StepError(OPENRESTY_BLOCKED_MSG + " Turn the edge off in the wizard's Protection step and install again.")
     mc = ctx["mailcow"]
     osid, ver, code = os_release()
     flavour, comp = ("ubuntu", "main") if osid == "ubuntu" else ("debian", "openresty")
+    code = repo_codename("https://openresty.org/package/" + flavour, flavour, code, r)
     apt_key_repo(r, "openresty", "https://openresty.org/package/pubkey.gpg",
                  "deb [signed-by=/usr/share/keyrings/openresty.gpg] https://openresty.org/package/%s %s %s" % (flavour, code, comp),
                  "/usr/share/keyrings/openresty.gpg")
@@ -1981,8 +2028,18 @@ def mailcow_api(method, path, body=None):
         req.add_header("Host", env["COWSEC_MAILCOW_HOST"])
     ctx = ssl.create_default_context()
     ctx.check_hostname, ctx.verify_mode = False, ssl.CERT_NONE  # localhost only
-    with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-        return json.loads(resp.read() or b"null")
+    # mailcow's web server answers 502/503/504 (or refuses) for a few seconds while it restarts
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+                return json.loads(resp.read() or b"null")
+        except urllib.error.HTTPError as e:
+            if e.code not in (502, 503, 504) or attempt == 4:
+                raise
+        except urllib.error.URLError:
+            if attempt == 4:
+                raise
+        time.sleep(3 * (attempt + 1))
 
 
 def netfilter_state():

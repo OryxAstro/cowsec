@@ -9,7 +9,7 @@
 
 | Need | Why |
 |---|---|
-| Debian 11/12/13 or Ubuntu 22.04/24.04, amd64, systemd | The packages CowSec installs (CrowdSec, OpenResty, cloudflared) target these. |
+| Debian 12/13 or Ubuntu 22.04/24.04, amd64, systemd | Tested with a full install on each. On **Debian 13** the OpenResty edge and WAF aren't available yet: Debian 13 rejects OpenResty's package signing key because it still uses SHA-1 ([openresty#1072](https://github.com/openresty/openresty/issues/1072)), and CowSec won't weaken apt's checks to get around it. Everything else works; the console is reached through an SSH tunnel or a Cloudflare Tunnel there. Debian 11 has reached end of life and no longer gets security updates. |
 | mailcow-dockerized, or a clean server | With an existing mailcow, CowSec reads its config (`mailcow.conf`), containers and domains. It looks in `/opt/mailcow-dockerized`, `/opt/mailcow` and `/srv/mailcow-dockerized`; set `MAILCOW_DIR` if yours lives elsewhere. On a clean server, the wizard can install Docker CE and mailcow for you (6 GiB of memory and 20 GB of disk recommended, ports 25, 80, 110, 143, 443, 465, 587, 993, 995 and 4190 free). |
 | Root (sudo) | It installs packages, edits firewall and mailcow settings, and manages services. |
 | Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
