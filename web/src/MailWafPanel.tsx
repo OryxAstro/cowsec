@@ -21,8 +21,9 @@ function Flow({ block, watch }: { block: number; watch: number }) {
   return (
     <svg viewBox="0 0 720 150" className="w-full h-auto" role="img" aria-label={`Requests pass ${block} blocking rules on the way to mailcow; ${watch} watching rules check afterwards and ban scanners`}>
       <defs>
-        <linearGradient id="mwf-a" x1="0" x2="1"><stop offset="0" stopColor="#38bdf8" /><stop offset="1" stopColor="#34d399" /></linearGradient>
-        <linearGradient id="mwf-b" x1="0" x2="1"><stop offset="0" stopColor="#818cf8" /><stop offset="1" stopColor="#fb7185" /></linearGradient>
+        {/* sized to the drawing, not the path: a straight line has no height, and a gradient sized to it never draws */}
+        <linearGradient id="mwf-a" gradientUnits="userSpaceOnUse" x1="40" y1="0" x2="680" y2="0"><stop offset="0" stopColor="#38bdf8" /><stop offset="1" stopColor="#34d399" /></linearGradient>
+        <linearGradient id="mwf-b" gradientUnits="userSpaceOnUse" x1="470" y1="0" x2="680" y2="0"><stop offset="0" stopColor="#818cf8" /><stop offset="1" stopColor="#fb7185" /></linearGradient>
       </defs>
       <path id="mwf-main" d="M40,55 H680" stroke="url(#mwf-a)" strokeWidth="3" strokeDasharray="6 8" fill="none" className="cs-flowline" />
       <path id="mwf-side" d="M470,55 C500,55 500,118 540,118 H680" stroke="url(#mwf-b)" strokeWidth="2.5" strokeDasharray="4 7" fill="none" className="cs-flowline" />
