@@ -117,7 +117,9 @@ const { loadConfig, browser, signIn, api: apiOf, reporter } = require('./lib');
       const gone = await mc('DELETE', `/domains/${D}`).catch(() => ({}));
       console.log(gone.status === 200 ? `cleaned up ${D}` : `could not remove ${D}; delete it by hand`);
     }
-    if (errors.length) console.log('page errors:', errors.slice(0, 10));
+    // 4xx answers are expected here: some checks make sure a bad request is refused
+    const real = errors.filter((e) => e.startsWith('JS:') || /^5\d\d /.test(e));
+    if (real.length) console.log('page errors:', real.slice(0, 10));
     await b.close();
     process.exit(done());
   }

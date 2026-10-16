@@ -47,7 +47,7 @@ const { loadConfig, browser, snap } = require('./lib');
       await p.click(`button.font-mono:text-is("${dns.provider}")`);
       for (const [name, value] of Object.entries(dns.env || {})) {
         await p.waitForSelector(`text=${name}`, { timeout: 60000 });
-        await p.locator(`label:has-text("${name}") input, xpath=//*[text()="${name}"]/following::input[1]`).first().fill(value);
+        await p.locator(`xpath=//span[text()="${name}"]/following-sibling::input[1]`).fill(value);
       }
       await p.fill('input[type=email]', s.email);
       if (s.staging) await p.click('label:has-text("Test run") button[role=switch]');
