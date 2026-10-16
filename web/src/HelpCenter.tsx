@@ -101,7 +101,7 @@ const KB: Article[] = [
     body: [{ img: securityLayers, alt: 'Security layers' },
       { list: ['Privileged actions go through cowsec-hostctl, which only accepts a fixed list of commands.', 'Sign-in: bcrypt or LDAP, plus TOTP or Duo, rate-limited and logged.', 'GeoIP lookups and fonts are local; CowSec doesn\'t enrol the CrowdSec Console.', 'Secrets live in root-only files and are redacted from job logs.'] }] },
   { id: 'cli', title: 'Command line reference', summary: 'Everything the console does, from the shell.',
-    body: [{ code: 'sudo cowsec-setup                 # wizard address and token, or status\nsudo cowsec-setup check           # pre-flight checks\nsudo cowsec-setup install --config FILE\nsudo cowsec-setup access lan|tunnel|wan|local ...\nsudo cowsec-setup mailcow-api     # connect the console to mailcow\'s API\nsudo cowsec-setup reset-wizard    # reopen the browser wizard\nsudo cowsec-setup revert-edge     # give 80/443 back to mailcow\nsudo cowsec-setup restore-mailcow # mailcow\'s settings back as before CowSec\nsudo cowsec auth status' }] },
+    body: [{ code: 'sudo cowsec-setup                 # wizard address and token, or status\nsudo cowsec-setup check           # pre-flight checks\nsudo cowsec-setup install --config FILE\nsudo cowsec-setup access lan|tunnel|wan|local ...\nsudo cowsec-setup mailcow-api     # connect the console to mailcow\'s API\nsudo cowsec-setup reset-wizard    # reopen the browser wizard\nsudo cowsec-setup revert-edge     # give 80/443 back to mailcow\nsudo cowsec-setup restore-mailcow # mailcow\'s settings back as before CowSec\nsudo cowsec-setup appsec-curate   # rebuild the mail WAF\nsudo cowsec auth status' }] },
 ];
 
 const TROUBLE: Article[] = [
@@ -125,6 +125,9 @@ const TROUBLE: Article[] = [
     body: ['CrowdSec stops at startup if it can\'t sign in to its central API. Check DNS, outbound firewalls and /etc/hosts. On a deliberately offline server, comment out credentials_path under online_client in /etc/crowdsec/config.yaml.'] },
   { id: 'resty', title: 'OpenResty: module \'resty.http\' not found', summary: 'A missing Lua library.',
     body: [{ code: 'sudo opm get ledgetech/lua-resty-http=0.17.1 && sudo systemctl restart openresty' }] },
+  { id: 'debian13', title: 'Debian 13: no OpenResty edge or WAF', summary: 'OpenResty\'s signing key still uses SHA-1.',
+    body: ['Debian 13\'s apt rejects keys bound with SHA-1 since 1 February 2026, and OpenResty\'s repository key still is (openresty/openresty#1072). CowSec won\'t weaken apt\'s checks for every repository to get around it.',
+      { list: ['On Debian 13 the wizard leaves the edge and WAF off, uses mailcow\'s own certificates, and makes the console reachable from the server itself (use an SSH tunnel or a Cloudflare Tunnel).', 'CrowdSec, the firewall bouncer (Docker\'s mail ports included), the ban policy and mailcow management all work.', 'When OpenResty publishes a new key, run sudo cowsec-setup reset-wizard and turn the edge on.'] }] },
   { id: 'docker-io', title: 'Installing mailcow: docker.io is installed', summary: 'mailcow needs Docker CE 24+.',
     body: [{ code: 'sudo apt remove docker.io' }, 'Then run the install again; CowSec installs Docker CE from Docker\'s repository.'] },
 ];

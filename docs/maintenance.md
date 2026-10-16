@@ -82,6 +82,7 @@ The default is `/var/backups/cowsec/mailcow`. Click the folder icon to browse th
 ```bash
 sudo cowsec-setup access lan|wan|tunnel|local ...   # console access
 sudo cowsec-setup reset-wizard                      # run the browser wizard again
+sudo cowsec-setup appsec-curate                     # rebuild the mail WAF (also runs after hub updates)
 ```
 
 Re-running the wizard is safe: every step is idempotent, and files are backed up before they change.

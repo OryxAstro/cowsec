@@ -47,6 +47,8 @@ mailcow is a superb mail server, but defending it properly with CrowdSec takes a
 
 CowSec does all of that for you from a browser wizard, then keeps it running with a console that explains what it's doing.
 
+**Safe to add to a server people rely on.** Mail keeps flowing during setup. Before its first change, CowSec saves mailcow's settings, certificates, CrowdSec's configuration and the firewall rules, and `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was. Tested with full installs on Debian 12 and 13 and Ubuntu 22.04 and 24.04.
+
 > CowSec is an independent community project. It is not affiliated with mailcow or CrowdSec.
 
 ## Features
