@@ -63,6 +63,17 @@ type listing struct {
 	Answer string `json:"answer,omitempty"`
 }
 
+// listedAnswer reports whether a DNSBL answer means "listed": an address in 127.0.0.0/8,
+// except 127.255.255.x, which lists such as Spamhaus use for "query refused".
+func listedAnswer(addrs []string) bool {
+	for _, a := range addrs {
+		if strings.HasPrefix(a, "127.") && !strings.HasPrefix(a, "127.255.255.") {
+			return true
+		}
+	}
+	return false
+}
+
 func checkBlocklists(ctx context.Context, ips []string) []listing {
 	out := []listing{}
 	var mu sync.Mutex
@@ -71,14 +82,6 @@ func checkBlocklists(ctx context.Context, ips []string) []listing {
 		cctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 		defer cancel()
 		return net.DefaultResolver.LookupHost(cctx, name)
-	}
-	listedAnswer := func(addrs []string) bool {
-		for _, a := range addrs {
-			if strings.HasPrefix(a, "127.") && !strings.HasPrefix(a, "127.255.255.") {
-				return true
-			}
-		}
-		return false
 	}
 	for _, bl := range blocklists {
 		wg.Add(1)
@@ -127,6 +130,16 @@ type Check struct {
 
 func (c *Client) scorecard(ctx context.Context, d string, ptrOK bool, listed bool) map[string]interface{} {
 	recs := c.dnsChecklist(ctx, d)
+	sts := c.mtaSTS(d)
+	served := sts.Active && c.mtaSTSServed(ctx, d, sts)
+	tlsRPT, _ := net.DefaultResolver.LookupTXT(ctx, "_smtp._tls."+d)
+	checks, pct, grade := gradeDomain(d, c.host, recs, ptrOK, listed, sts, served, tlsRPT)
+	return map[string]interface{}{"domain": d, "score": pct, "grade": grade, "checks": checks, "mta_sts": sts}
+}
+
+// gradeDomain turns what DNS and the server answered into a domain's checks, score (0-100)
+// and grade (A-F). It does no lookups itself.
+func gradeDomain(d, host string, recs []DNSRecord, ptrOK, listed bool, sts MTASTS, served bool, tlsRPT []string) ([]Check, int, string) {
 	find := func(typ string) *DNSRecord {
 		for i := range recs {
 			if strings.HasPrefix(recs[i].Type, typ) {
@@ -202,7 +215,7 @@ func (c *Client) scorecard(ctx context.Context, d string, ptrOK bool, listed boo
 	if ptrOK {
 		ptr.State, ptr.Points, ptr.Detail = "ok", 10, "The server's address names this server."
 	} else {
-		ptr.State, ptr.Detail, ptr.Fix = "fail", "The server's address doesn't name it back.", "Ask whoever owns the IP (ISP or VPS provider) to set reverse DNS to "+c.host+"."
+		ptr.State, ptr.Detail, ptr.Fix = "fail", "The server's address doesn't name it back.", "Ask whoever owns the IP (ISP or VPS provider) to set reverse DNS to "+host+"."
 	}
 	add(ptr)
 	bl := Check{ID: "blocklists", Label: "Blocklists (server)", Max: 10}
@@ -212,12 +225,11 @@ func (c *Client) scorecard(ctx context.Context, d string, ptrOK bool, listed boo
 		bl.State, bl.Points, bl.Detail = "ok", 10, "Not listed on the lists checked."
 	}
 	add(bl)
-	sts := c.mtaSTS(d)
 	ms := Check{ID: "mta-sts", Label: "MTA-STS", Max: 10}
 	switch {
-	case sts.Active && sts.Mode == "enforce" && c.mtaSTSServed(ctx, d, sts):
+	case sts.Active && sts.Mode == "enforce" && served:
 		ms.State, ms.Points, ms.Detail = "ok", 10, "Enforced, and the policy is reachable."
-	case sts.Active && c.mtaSTSServed(ctx, d, sts):
+	case sts.Active && served:
 		ms.State, ms.Points, ms.Detail, ms.Fix = "warn", 6, "Policy in "+sts.Mode+" mode.", "Switch to enforce once TLS reports look clean."
 	case sts.Active:
 		ms.State, ms.Points, ms.Detail, ms.Fix = "warn", 2, "Configured, but the policy isn't reachable yet.", "Publish the mta-sts and _mta-sts records (DNS records), and make sure the certificate covers mta-sts."+d+"."
@@ -226,8 +238,12 @@ func (c *Client) scorecard(ctx context.Context, d string, ptrOK bool, listed boo
 	}
 	add(ms)
 	tlsrpt := Check{ID: "tls-rpt", Label: "TLS reporting", Max: 5}
-	if v, _ := net.DefaultResolver.LookupTXT(ctx, "_smtp._tls."+d); len(v) > 0 && strings.HasPrefix(strings.ToLower(v[0]), "v=tlsrptv1") {
-		tlsrpt.State, tlsrpt.Points, tlsrpt.Detail = "ok", 5, "Reports go to "+strings.TrimPrefix(strings.SplitN(v[0], "rua=", 2)[len(strings.SplitN(v[0], "rua=", 2))-1], "mailto:")+"."
+	if v := tlsRPT; len(v) > 0 && strings.HasPrefix(strings.ToLower(v[0]), "v=tlsrptv1") {
+		rua := v[0]
+		if i := strings.Index(strings.ToLower(rua), "rua="); i >= 0 {
+			rua = rua[i+4:]
+		}
+		tlsrpt.State, tlsrpt.Points, tlsrpt.Detail = "ok", 5, "Reports go to "+strings.TrimPrefix(strings.TrimSpace(rua), "mailto:")+"."
 	} else {
 		tlsrpt.State, tlsrpt.Detail, tlsrpt.Fix = "info", "Not set up.", "Add a TXT record at _smtp._tls."+d+": v=TLSRPTv1; rua=mailto:postmaster@"+d
 	}
@@ -251,7 +267,7 @@ func (c *Client) scorecard(ctx context.Context, d string, ptrOK bool, listed boo
 			break
 		}
 	}
-	return map[string]interface{}{"domain": d, "score": pct, "grade": grade, "checks": checks, "mta_sts": sts}
+	return checks, pct, grade
 }
 
 // mtaSTSServed fetches https://mta-sts.<domain>/.well-known/mta-sts.txt the way a sending

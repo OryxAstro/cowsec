@@ -213,69 +213,22 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 				mu.Unlock()
 			}
 		}()
-		local := strings.SplitN(u, "@", 2)[0]
-		matches := func(name string) bool {
-			name = strings.ToLower(strings.Trim(name, "<>\" "))
-			return name == u || name == local
-		}
+		matches := mailboxMatcher(u)
 		go func() { // failed SMTP AUTH (Postfix)
 			defer wg.Done()
-			data, err := c.List("get/logs/postfix/5000")
-			if err != nil {
-				return
-			}
-			var lines []struct {
-				Time    json.Number `json:"time"`
-				Message string      `json:"message"`
-			}
-			json.Unmarshal(data, &lines)
-			for _, l := range lines {
-				if !strings.Contains(l.Message, "authentication failed") {
-					continue
-				}
-				m := reSASLUser.FindStringSubmatch(l.Message)
-				if m == nil || !matches(m[1]) {
-					continue
-				}
-				ip := ""
-				if p := rePostfixIP.FindStringSubmatch(l.Message); p != nil {
-					ip = p[1]
-				}
-				t, _ := l.Time.Int64()
+			if lines, err := c.logLines("postfix"); err == nil {
+				f := postfixFailures(lines, matches)
 				mu.Lock()
-				failures = append(failures, failure{Time: t, Source: "smtp", IP: ip, Tried: m[1]})
+				failures = append(failures, f...)
 				mu.Unlock()
 			}
 		}()
 		go func() { // failed IMAP/POP3 logins (Dovecot)
 			defer wg.Done()
-			data, err := c.List("get/logs/dovecot/5000")
-			if err != nil {
-				return
-			}
-			var lines []struct {
-				Time    json.Number `json:"time"`
-				Message string      `json:"message"`
-			}
-			json.Unmarshal(data, &lines)
-			for _, l := range lines {
-				var name, ip string
-				if strings.Contains(l.Message, "auth failed") {
-					if m := reDoveUser.FindStringSubmatch(l.Message); m != nil {
-						name = m[1]
-					}
-					if m := reDoveRIP.FindStringSubmatch(l.Message); m != nil {
-						ip = m[1]
-					}
-				} else if m := reSQLUser.FindStringSubmatch(l.Message); m != nil && strings.Contains(strings.ToLower(l.Message), "mismatch") {
-					name, ip = m[1], m[2]
-				}
-				if name == "" || !matches(name) {
-					continue
-				}
-				t, _ := l.Time.Int64()
+			if lines, err := c.logLines("dovecot"); err == nil {
+				f := dovecotFailures(lines, matches)
 				mu.Lock()
-				failures = append(failures, failure{Time: t, Source: "imap", IP: ip, Tried: name})
+				failures = append(failures, f...)
 				mu.Unlock()
 			}
 		}()
@@ -612,63 +565,9 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 		wg.Wait()
 
 		// authenticated submissions per sender, from Postfix's log window
-		type sender struct {
-			User   string  `json:"user"`
-			Count  int     `json:"count"`
-			IPs    int     `json:"ips"`
-			First  int64   `json:"first"`
-			Last   int64   `json:"last"`
-			PerHr  float64 `json:"per_hour"`
-			Unusal bool    `json:"unusual"`
-			ipset  map[string]bool
-		}
-		var lines []struct {
-			Time    json.Number `json:"time"`
-			Message string      `json:"message"`
-		}
+		var lines []logLine
 		json.Unmarshal(postfix, &lines)
-		by := map[string]*sender{}
-		var lo, hi int64
-		for _, l := range lines {
-			t, _ := l.Time.Int64()
-			if t > 0 && (lo == 0 || t < lo) {
-				lo = t
-			}
-			if t > hi {
-				hi = t
-			}
-			if strings.Contains(l.Message, "authentication failed") || !strings.Contains(l.Message, "sasl_username=") || !strings.Contains(l.Message, "client=") {
-				continue
-			}
-			m := reSASLUser.FindStringSubmatch(l.Message)
-			if m == nil {
-				continue
-			}
-			u := strings.ToLower(m[1])
-			s := by[u]
-			if s == nil {
-				s = &sender{User: u, First: t, ipset: map[string]bool{}}
-				by[u] = s
-			}
-			s.Count++
-			s.Last = t
-			if p := rePostfixIP.FindStringSubmatch(l.Message); p != nil {
-				s.ipset[p[1]] = true
-			}
-		}
-		senders := []*sender{}
-		window := float64(hi-lo) / 3600
-		if window < 1 {
-			window = 1
-		}
-		for _, s := range by {
-			s.IPs = len(s.ipset)
-			s.PerHr = float64(s.Count) / window
-			// many messages in the window, or from many addresses, is how a stolen account looks
-			s.Unusal = s.Count >= 200 || s.IPs >= 5
-			senders = append(senders, s)
-		}
-		sort.Slice(senders, func(i, j int) bool { return senders[i].Count > senders[j].Count })
+		senders, lo, hi := outboundSenders(lines)
 		if len(senders) > 25 {
 			senders = senders[:25]
 		}
@@ -741,6 +640,141 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 		}
 		change(w, "delete/fwdhost", []string{h})
 	})
+}
+
+type logLine struct {
+	Time    json.Number `json:"time"`
+	Message string      `json:"message"`
+}
+
+func (c *Client) logLines(kind string) ([]logLine, error) {
+	data, err := c.List("get/logs/" + kind + "/5000")
+	if err != nil {
+		return nil, err
+	}
+	var lines []logLine
+	err = json.Unmarshal(data, &lines)
+	return lines, err
+}
+
+// mailboxMatcher matches the names a client might sign in with: the full address or its local part.
+func mailboxMatcher(u string) func(string) bool {
+	u = strings.ToLower(u)
+	local := strings.SplitN(u, "@", 2)[0]
+	return func(name string) bool {
+		name = strings.ToLower(strings.Trim(name, "<>\" "))
+		return name == u || name == local
+	}
+}
+
+// postfixFailures finds failed SMTP AUTH attempts for one mailbox in Postfix's log.
+func postfixFailures(lines []logLine, matches func(string) bool) []failure {
+	out := []failure{}
+	for _, l := range lines {
+		if !strings.Contains(l.Message, "authentication failed") {
+			continue
+		}
+		m := reSASLUser.FindStringSubmatch(l.Message)
+		if m == nil || !matches(m[1]) {
+			continue
+		}
+		ip := ""
+		if p := rePostfixIP.FindStringSubmatch(l.Message); p != nil {
+			ip = p[1]
+		}
+		t, _ := l.Time.Int64()
+		out = append(out, failure{Time: t, Source: "smtp", IP: ip, Tried: m[1]})
+	}
+	return out
+}
+
+// dovecotFailures finds failed IMAP/POP3 logins for one mailbox in Dovecot's log.
+func dovecotFailures(lines []logLine, matches func(string) bool) []failure {
+	out := []failure{}
+	for _, l := range lines {
+		var name, ip string
+		if strings.Contains(l.Message, "auth failed") {
+			if m := reDoveUser.FindStringSubmatch(l.Message); m != nil {
+				name = m[1]
+			}
+			if m := reDoveRIP.FindStringSubmatch(l.Message); m != nil {
+				ip = m[1]
+			}
+		} else if m := reSQLUser.FindStringSubmatch(l.Message); m != nil && strings.Contains(strings.ToLower(l.Message), "mismatch") {
+			name, ip = m[1], m[2]
+		}
+		if name == "" || !matches(name) {
+			continue
+		}
+		t, _ := l.Time.Int64()
+		out = append(out, failure{Time: t, Source: "imap", IP: ip, Tried: name})
+	}
+	return out
+}
+
+// outSender is one account's authenticated submissions in the log window.
+type outSender struct {
+	User    string  `json:"user"`
+	Count   int     `json:"count"`
+	IPs     int     `json:"ips"`
+	First   int64   `json:"first"`
+	Last    int64   `json:"last"`
+	PerHr   float64 `json:"per_hour"`
+	Unusual bool    `json:"unusual"`
+	ipset   map[string]bool
+}
+
+// outboundSenders counts authenticated submissions per account in Postfix's log, busiest
+// first. Many messages, or one account sending from many addresses, is how a stolen
+// password usually shows up.
+func outboundSenders(lines []logLine) ([]*outSender, int64, int64) {
+	by := map[string]*outSender{}
+	var lo, hi int64
+	for _, l := range lines {
+		t, _ := l.Time.Int64()
+		if t > 0 && (lo == 0 || t < lo) {
+			lo = t
+		}
+		if t > hi {
+			hi = t
+		}
+		if strings.Contains(l.Message, "authentication failed") || !strings.Contains(l.Message, "sasl_username=") || !strings.Contains(l.Message, "client=") {
+			continue
+		}
+		m := reSASLUser.FindStringSubmatch(l.Message)
+		if m == nil {
+			continue
+		}
+		u := strings.ToLower(m[1])
+		s := by[u]
+		if s == nil {
+			s = &outSender{User: u, First: t, ipset: map[string]bool{}}
+			by[u] = s
+		}
+		s.Count++
+		s.Last = t
+		if p := rePostfixIP.FindStringSubmatch(l.Message); p != nil {
+			s.ipset[p[1]] = true
+		}
+	}
+	window := float64(hi-lo) / 3600
+	if window < 1 {
+		window = 1
+	}
+	out := []*outSender{}
+	for _, s := range by {
+		s.IPs = len(s.ipset)
+		s.PerHr = float64(s.Count) / window
+		s.Unusual = s.Count >= 200 || s.IPs >= 5
+		out = append(out, s)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].User < out[j].User
+	})
+	return out, lo, hi
 }
 
 func isCIDR(s string) bool { _, _, err := net.ParseCIDR(s); return err == nil }

@@ -29,6 +29,7 @@ test:
 	go vet ./...
 	go test ./...
 	python3 -m py_compile packaging/lib/setup_engine.py packaging/lib/cowsec-hostctl packaging/cowsec-setup
+	python3 -m unittest discover -s packaging/tests
 
 deb: web bin test
 	rm -rf $(PKG)

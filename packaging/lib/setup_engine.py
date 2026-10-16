@@ -290,7 +290,13 @@ def appsec_plan():
         raise StepError("could not list AppSec rules: " + out[-300:])
     data = json.loads(out)
     items = data.get("appsec-rules", data) if isinstance(data, dict) else data
-    over = appsec_overrides()
+    rules = appsec_classify(items, appsec_overrides())
+    return {"config": APPSEC_CONFIG_NAME, "active": appsec_active_config(), "rules": rules,
+            "counts": {m: sum(1 for r in rules if r["mode"] == m) for m in ("block", "watch", "off")}}
+
+
+def appsec_classify(items, over):
+    """Each rule's mode from cscli's list and the user's pinned choices (no system access)."""
     rules = []
     for i in items:
         name = i.get("name", "")
@@ -302,8 +308,7 @@ def appsec_plan():
         mode = over.get(name, auto) if installed else "off"
         rules.append({"name": name, "description": desc, "auto": auto, "mode": mode, "override": name in over, "installed": installed})
     rules.sort(key=lambda r: ({"block": 0, "watch": 1, "off": 2}[r["mode"]], r["name"]))
-    return {"config": APPSEC_CONFIG_NAME, "active": appsec_active_config(), "rules": rules,
-            "counts": {m: sum(1 for r in rules if r["mode"] == m) for m in ("block", "watch", "off")}}
+    return rules
 
 
 def appsec_active_config():
@@ -1163,13 +1168,17 @@ def public_config(c):
 RELEASE_ORDER = {"debian": ["forky", "trixie", "bookworm"], "ubuntu": ["questing", "plucky", "noble", "jammy"]}
 
 
+def codename_candidates(flavour, code):
+    """This release first, then the older ones, newest first."""
+    order = RELEASE_ORDER.get(flavour, [])
+    return [code] + (order[order.index(code) + 1:] if code in order else list(order))
+
+
 def repo_codename(base, flavour, code, r=None):
     """The release a package repository actually publishes for this system: this system's own
     if it has one, otherwise the nearest older release (e.g. CrowdSec's packages for Debian 12
     on Debian 13 until CrowdSec publishes a trixie section)."""
-    order = RELEASE_ORDER.get(flavour, [])
-    cands = [code] + (order[order.index(code) + 1:] if code in order else [c for c in order])
-    for cand in cands:
+    for cand in codename_candidates(flavour, code):
         for name in ("InRelease", "Release"):
             try:
                 req = urllib.request.Request("%s/dists/%s/%s" % (base.rstrip("/"), cand, name), method="HEAD",
