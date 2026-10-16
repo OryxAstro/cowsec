@@ -1,0 +1,45 @@
+name: Bug report
+description: Something doesn't work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting. **Security problems: please use private reporting instead** (Security tab → Report a vulnerability)."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of `sudo cowsec-setup check`
+      description: It changes nothing. Remove anything private (hostnames, addresses) if you prefer.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: CowSec version
+      description: "`dpkg -l cowsec`, or About CowSec in the console"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: Debian 12, Ubuntu 24.04, …
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: mailcow and CrowdSec versions
+      placeholder: mailcow 2026-09a, CrowdSec 1.7.2
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "For example `journalctl -u cowsec -n 100` or `journalctl -u crowdsec -n 100`."
+      render: text

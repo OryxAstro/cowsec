@@ -175,6 +175,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🔧 [Maintenance](docs/maintenance.md) | Updates, reverting the edge, uninstalling |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Lock-outs, clocks, certificates, OpenResty |
 | 🗺️ [Architecture](docs/architecture.md) | How the pieces fit together |
+| 🤝 [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md) | Bug reports, pull requests, and reporting vulnerabilities privately |
 | 🧭 [Roadmap](docs/roadmap.md) | What's next: deeper mailcow control, a modern white-label webmail client |
 
 ## 🥛 Feed the cow
