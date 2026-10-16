@@ -1,8 +1,9 @@
 // API regression checks against a running CowSec console. Creates its own throwaway domain
-// (e2e-<random>.test) and mailbox, exercises the mail features, mailbox security, the mail WAF
-// and deliverability, then deletes everything it made. Exit code 1 if any check fails.
+// (e2e-<random>.test) and mailbox, exercises the mail features, mailbox security, the mail WAF,
+// deliverability and Mail insight (one message sent through SMTP submission and followed in the
+// trail), then deletes everything it made. Exit code 1 if any check fails.
 //   COWSEC_E2E_CONFIG=config.json node checks.js [outdir]
-const { loadConfig, browser, signIn, api: apiOf, reporter } = require('./lib');
+const { loadConfig, browser, signIn, api: apiOf, reporter, smtpSend } = require('./lib');
 
 (async () => {
   const cfg = loadConfig();
@@ -100,6 +101,39 @@ const { loadConfig, browser, signIn, api: apiOf, reporter } = require('./lib');
     r = await mc('POST', '/domain-admins', { username: 'e2e' + tag, password: 'E2e-' + tag + '-Passw0rd', domains: [D], active: true });
     r = await mc('POST', `/domain-admins/e2e${tag}/sso`);
     check('domain admin sign-in link', /\/domainadmin\/\?sso_token=/.test(r.body.url || ''), r.body);
+
+    // ---- Mail insight: send a real message and follow it in the trail and the dashboard
+    const subject = `CowSec e2e ${tag}`;
+    let sent = null;
+    try {
+      sent = await smtpSend(cfg, { user: U, pass: 'E2e-' + tag + '-Passw0rd', from: U, to: U, subject });
+    } catch (e) {
+      console.log(`SKIP mail insight (can't send through SMTP submission: ${e.message})`);
+    }
+    if (sent) {
+      let hit = null;
+      for (let i = 0; i < 18 && !(hit && hit.status === 'delivered' && hit.subject); i++) {
+        await api('POST', '/api/mailcow/insight/refresh');
+        await p.waitForTimeout(5000);
+        r = await mc('GET', `/trail?q=${encodeURIComponent(sent.messageId)}`);
+        hit = (r.body.messages || [])[0];
+      }
+      check('trail finds the message by Message-ID', !!hit, r.body);
+      check('trail follows it to the mailbox, with rspamd\'s subject', hit && hit.status === 'delivered' && hit.direction === 'internal' && hit.subject === subject, hit);
+      if (hit) {
+        r = await mc('GET', `/trail/${hit.id}`);
+        const m = r.body.message || {};
+        check('journey: signed in, checked, delivered locally', m.user === U && m.verdict && m.hops.length === 1 && m.hops[0].local && m.hops[0].status === 'sent', m);
+        r = await mc('GET', `/trail?q=${encodeURIComponent(subject)}&status=delivered&dir=internal`);
+        check('trail search by subject with filters', (r.body.messages || []).some((x) => x.id === hit.id), r.body);
+      }
+      r = await mc('GET', '/insight/health?range=24h&tz=0');
+      const box = (r.body.mailboxes || []).find((b) => b.user === U);
+      check('dashboard counts the mailbox\'s mail', box && box.c.sent >= 1 && box.c.delivered_local >= 1, box || r.body.mailboxes);
+      check('dashboard series covers 24 hours', (r.body.series || []).length >= 24, (r.body.series || []).length);
+      r = await mc('GET', '/trail?status=nonsense');
+      check('trail refuses unknown filters', r.status === 400, r.status);
+    }
 
     // ---- mail WAF
     r = await api('GET', '/api/crowdsec/appsec/plan');

@@ -397,7 +397,15 @@ main .bg-slate-950\/80 {
 .cs-flowline { stroke-dasharray: 8 6; animation: cs-flowline 1.4s linear infinite; }
 .cs-flowline--slow { stroke-dasharray: 3 7; animation-duration: 2.8s; }
 .cs-zap { transform-box: fill-box; transform-origin: center; animation: cs-zap 1.1s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { .cs-flowline, .cs-zap { animation: none; } }
+@keyframes cs-draw { from { stroke-dasharray: 2000; stroke-dashoffset: 2000; } to { stroke-dasharray: 2000; stroke-dashoffset: 0; } }
+@keyframes cs-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes cs-travel { 0% { cy: 0%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { cy: 100%; opacity: 0; } }
+@keyframes cs-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, .45); } 50% { box-shadow: 0 0 0 7px rgba(251, 191, 36, 0); } }
+.cs-draw { animation: cs-draw 1.2s ease-out both; }
+.cs-rise { animation: cs-rise .45s ease-out both; }
+.cs-travel { animation: cs-travel 2.4s ease-in-out infinite; }
+.cs-pulse { animation: cs-pulse 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cs-flowline, .cs-zap, .cs-draw, .cs-rise, .cs-travel, .cs-pulse { animation: none; } .cs-travel { display: none; } }
 
 /* ================================================================
    LIGHT THEMES: components use Tailwind's dark slate scale and pale accent

@@ -42,7 +42,9 @@ var (
 	reSASLUser  = regexp.MustCompile(`sasl_username=([^\s,]+)`)
 	reDoveUser  = regexp.MustCompile(`user=<([^>]*)>`)
 	reDoveRIP   = regexp.MustCompile(`rip=([0-9a-fA-F.:]+)`)
-	reSQLUser   = regexp.MustCompile(`\(([^,()]+),([0-9a-fA-F.:]+)(?:,[^)]*)?\): (?:Password mismatch|unknown user|password mismatch)`)
+	// Dovecot's password check: one line per attempt, for every protocol. IMAP and POP3 logins carry a
+	// session ID as a third field; SMTP AUTH (Postfix asking Dovecot) doesn't.
+	reAuthCheck = regexp.MustCompile(`\b(?:lua|sql|passwd-file|ldap|static)\(([^,()]+),([0-9a-fA-F.:]+)(,<[^>]*>)?\): [Pp]assword mismatch`)
 	lockMu      sync.Mutex
 )
 
@@ -214,23 +216,14 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 			}
 		}()
 		matches := mailboxMatcher(u)
+		var pfLines, dvLines []logLine
 		go func() { // failed SMTP AUTH (Postfix)
 			defer wg.Done()
-			if lines, err := c.logLines("postfix"); err == nil {
-				f := postfixFailures(lines, matches)
-				mu.Lock()
-				failures = append(failures, f...)
-				mu.Unlock()
-			}
+			pfLines, _ = c.logLines("postfix")
 		}()
-		go func() { // failed IMAP/POP3 logins (Dovecot)
+		go func() { // failed sign-ins of every kind (Dovecot checks all passwords)
 			defer wg.Done()
-			if lines, err := c.logLines("dovecot"); err == nil {
-				f := dovecotFailures(lines, matches)
-				mu.Lock()
-				failures = append(failures, f...)
-				mu.Unlock()
-			}
+			dvLines, _ = c.logLines("dovecot")
 		}()
 		go func() {
 			defer wg.Done()
@@ -239,6 +232,7 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 			}
 		}()
 		wg.Wait()
+		failures = append(failures, authFailures(dvLines, pfLines, matches)...)
 
 		ips := []string{}
 		for _, l := range logins {
@@ -644,6 +638,7 @@ func mountSecurity(r chi.Router, c *Client, o Options) {
 
 type logLine struct {
 	Time    json.Number `json:"time"`
+	Program string      `json:"program,omitempty"`
 	Message string      `json:"message"`
 }
 
@@ -688,26 +683,58 @@ func postfixFailures(lines []logLine, matches func(string) bool) []failure {
 	return out
 }
 
-// dovecotFailures finds failed IMAP/POP3 logins for one mailbox in Dovecot's log.
-func dovecotFailures(lines []logLine, matches func(string) bool) []failure {
+// authFailures lists failed sign-ins for the mailboxes matches accepts, one entry per attempt.
+// Postfix asks Dovecot to check SMTP passwords, so the same attempt shows up in Postfix's log, in
+// Dovecot's password check and (for IMAP) in the login process's own line. Dovecot's check is the
+// one line every attempt has; the others are only used if this Dovecot doesn't log its checks.
+func authFailures(dovecot, postfix []logLine, matches func(string) bool) []failure {
+	out := []failure{}
+	checked := false
+	for _, l := range dovecot {
+		m := reAuthCheck.FindStringSubmatch(l.Message)
+		if m == nil {
+			continue
+		}
+		checked = true
+		if !matches(m[1]) {
+			continue
+		}
+		src := "smtp"
+		if m[3] != "" {
+			src = "imap"
+		}
+		t, _ := l.Time.Int64()
+		out = append(out, failure{Time: t, Source: src, IP: m[2], Tried: m[1]})
+	}
+	if checked {
+		return out
+	}
+	return append(postfixFailures(postfix, matches), loginFailures(dovecot, matches)...)
+}
+
+// loginFailures reads the IMAP/POP3 login processes' "auth failed" lines.
+func loginFailures(lines []logLine, matches func(string) bool) []failure {
 	out := []failure{}
 	for _, l := range lines {
+		if !strings.Contains(l.Message, "auth failed") {
+			continue
+		}
 		var name, ip string
-		if strings.Contains(l.Message, "auth failed") {
-			if m := reDoveUser.FindStringSubmatch(l.Message); m != nil {
-				name = m[1]
-			}
-			if m := reDoveRIP.FindStringSubmatch(l.Message); m != nil {
-				ip = m[1]
-			}
-		} else if m := reSQLUser.FindStringSubmatch(l.Message); m != nil && strings.Contains(strings.ToLower(l.Message), "mismatch") {
-			name, ip = m[1], m[2]
+		if m := reDoveUser.FindStringSubmatch(l.Message); m != nil {
+			name = m[1]
+		}
+		if m := reDoveRIP.FindStringSubmatch(l.Message); m != nil {
+			ip = m[1]
 		}
 		if name == "" || !matches(name) {
 			continue
 		}
+		src := "imap"
+		if strings.Contains(l.Message, "pop3-login") {
+			src = "pop3"
+		}
 		t, _ := l.Time.Int64()
-		out = append(out, failure{Time: t, Source: "imap", IP: ip, Tried: name})
+		out = append(out, failure{Time: t, Source: src, IP: ip, Tried: name})
 	}
 	return out
 }

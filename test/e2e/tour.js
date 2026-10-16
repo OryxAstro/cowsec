@@ -6,7 +6,7 @@ const { loadConfig, browser, signIn, snap, reporter } = require('./lib');
 
 const PAGES = [
   'host', 'updates', 'decisions', 'policy', 'appsec', 'whitelists', 'netfilter',
-  'farm', 'domains', 'mailboxes', 'aliases', 'quarantine', 'queue', 'lookout', 'ribbons', 'maillogs',
+  'farm', 'health', 'trail', 'domains', 'mailboxes', 'aliases', 'quarantine', 'queue', 'lookout', 'ribbons', 'maillogs',
   'farmhands', 'ratelimits', 'tls', 'routes',
   'alerts', 'hub', 'topology', 'help', 'about',
 ];

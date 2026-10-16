@@ -90,6 +90,7 @@ func Routes(r chi.Router, c *Client, o Options) {
 		mountExtras(r, c, o)
 		mountSecurity(r, c, o)
 		mountDeliver(r, c, o)
+		mountInsight(r, c, o)
 	})
 }
 

@@ -106,6 +106,8 @@ Run mailcow's day-to-day admin from CowSec, behind its 2FA sign-in and audit log
 - a safe quarantine preview (plain text only, with the rules that held each message, disguised links and risky attachments), the mail queue and mailcow's logs;
 - **mailbox security:** sign-ins with country flags and failed attempts with their CrowdSec ban status, plus a one-click **lock-down** you can undo;
 - the **Lookout** page: outbound volume per sender, admins without 2FA, password policy and forwarding hosts;
+- **Herd Health:** a mail dashboard for 24 hours, 7 days or 30 days (mail in and out, spam caught, refusals and why, bounces, failed sign-ins, the busiest mailboxes), from a history CowSec keeps itself;
+- **Hoofprints**, the mail trail: search any message by sender, recipient, subject or IP and follow its journey step by step, with rspamd's score and the reason at every stop;
 - **Show Ribbons:** a deliverability grade for every domain (DNS, DKIM, SPF, DMARC, MTA-STS, reverse DNS, blocklists), MTA-STS per domain, a new-domain wizard that watches DNS turn green, and one-click sign-in as a domain admin;
 - domain admins and their permissions, rate limits, TLS policies, relay hosts and transports;
 - mailcow's own **netfilter** ban engine, side by side with CrowdSec or with CrowdSec enforcing its bans.
@@ -159,6 +161,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | <img src="docs/img/mail/farmhands.webp" alt="Domain admins"> | <img src="docs/img/console/netfilter.webp" alt="mailcow netfilter and CrowdSec"> |
 | <img src="docs/img/mail/mailbox-lockdown.webp" alt="Mailbox security and the lock-down playbook"> | <img src="docs/img/mail/lookout.webp" alt="Lookout: outbound mail, admins and 2FA, password policy"> |
 | <img src="docs/img/mail/quarantine-preview.webp" alt="A quarantined message, shown safely"> | <img src="docs/img/mail/domain-footer.webp" alt="Domain footer with live preview"> |
+| <img src="docs/img/mail/herd-health.webp" alt="Herd Health: the mail dashboard"> | <img src="docs/img/mail/mail-journey.webp" alt="Hoofprints: one message's journey"> |
 | <img src="docs/img/mail/show-ribbons.webp" alt="Show Ribbons: deliverability grades"> | <img src="docs/img/mail/new-domain-dns.webp" alt="New-domain wizard"> |
 
 </details>

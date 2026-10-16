@@ -24,8 +24,8 @@ Built on mailcow's API ([review of the API](mailcow.md)), with CrowdSec tying it
 ### Mail insight
 
 CowSec keeps a small history of its own, so it can show trends and follow a message from start to finish:
-- **Mail trail:** search by sender, recipient or subject and follow one message as an animated journey: arrived, rspamd's verdict, delivered, deferred or bounced, with the reason at each step.
-- **Herd health dashboard:** messages, spam, bounces and failed sign-ins over 24 hours, 7 days and 30 days, with live sparklines; per-mailbox sent, received and failure rates.
+- **Mail trail (done, 0.4):** search by sender, recipient, subject, queue ID or IP and follow one message as an animated journey: arrived, rspamd's verdict, delivered, deferred or bounced, with the reason at each step.
+- **Herd health dashboard (done, 0.4):** mail flow, spam, refusals, bounces and failed sign-ins over 24 hours, 7 days and 30 days, with sparklines; per-mailbox sent, received, bounced and failed sign-ins.
 - **DMARC and TLS reports:** import aggregate reports (upload or a mailbox CowSec reads), then show who sends as your domains on an animated map, and what passes or fails.
 - **Pen rules:** release or delete quarantined mail automatically by sender, domain, recipient or subject, with a dry run first.
 - **Do-not-send list:** stop retrying addresses that hard-bounce, and keep the queue clean.

@@ -29,19 +29,33 @@ func TestPostfixFailures(t *testing.T) {
 	}
 }
 
-func TestDovecotFailures(t *testing.T) {
-	ls := lines(
-		"imap-login: Disconnected: Connection closed (auth failed, 3 attempts in 12 secs): user=<alice@example.org>, method=PLAIN, rip=203.0.113.9, lip=172.22.1.250, TLS",
-		"auth-worker(123): conn unix:auth-worker: auth-worker<1>: sql(alice@example.org,198.51.100.4,<abc>): Password mismatch",
-		"auth-worker(123): sql(nobody@example.org,198.51.100.5): unknown user",
-		"imap-login: Login: user=<alice@example.org>, method=PLAIN, rip=192.0.2.10",
+func TestAuthFailuresCountEachAttemptOnce(t *testing.T) {
+	// one wrong SMTP password and one wrong IMAP password, as mailcow logs them
+	dovecot := lines(
+		"auth-worker(496): conn unix:auth-worker (pid=133,uid=401): auth-worker<17>: lua(alice@example.org,203.0.113.9): Password mismatch (SHA1 of given password: 6809ff)",
+		"auth-worker(629): conn unix:auth-worker (pid=133,uid=401): auth-worker<2>: lua(alice@example.org,198.51.100.4,<ULuA4vddrODAqApJ>): Password mismatch (SHA1 of given password: 6809ff)",
+		"imap-login: Disconnected: Aborted login by logging out (auth failed, 1 attempts in 2 secs): user=<alice@example.org>, method=PLAIN, rip=198.51.100.4, lip=172.22.1.250, TLS",
+		"auth-worker(496): conn unix:auth-worker (pid=133,uid=401): auth-worker<20>: sql(watchdog@invalid,172.22.1.12): unknown user ",
+		"auth-worker(629): auth-worker<4>: lua(bob@example.org,198.51.100.5,<Kz+a4vddvODAqApJ>): Password mismatch",
 	)
-	got := dovecotFailures(ls, mailboxMatcher("alice@example.org"))
+	postfix := lines("warning: unknown[203.0.113.9]: SASL LOGIN authentication failed: (reason unavailable), sasl_username=alice@example.org")
+	got := authFailures(dovecot, postfix, mailboxMatcher("alice@example.org"))
 	if len(got) != 2 {
-		t.Fatalf("want 2 failures, got %+v", got)
+		t.Fatalf("want one entry per attempt (2), got %+v", got)
 	}
-	if got[0].IP != "203.0.113.9" || got[1].IP != "198.51.100.4" || got[0].Source != "imap" {
-		t.Errorf("wrong details: %+v", got)
+	if got[0].Source != "smtp" || got[0].IP != "203.0.113.9" || got[1].Source != "imap" || got[1].IP != "198.51.100.4" {
+		t.Errorf("wrong sources: %+v", got)
+	}
+}
+
+func TestAuthFailuresFallBack(t *testing.T) {
+	// a Dovecot that doesn't log its password checks: use Postfix's and the login process's lines
+	dovecot := lines("imap-login: Disconnected: Connection closed (auth failed, 3 attempts in 12 secs): user=<alice@example.org>, method=PLAIN, rip=203.0.113.9, lip=172.22.1.250, TLS",
+		"pop3-login: Disconnected (auth failed, 1 attempts in 2 secs): user=<alice>, method=PLAIN, rip=203.0.113.10")
+	postfix := lines("warning: unknown[203.0.113.8]: SASL PLAIN authentication failed: UGFzc3dvcmQ6, sasl_username=alice")
+	got := authFailures(dovecot, postfix, mailboxMatcher("alice@example.org"))
+	if len(got) != 3 || got[0].Source != "smtp" || got[1].Source != "imap" || got[2].Source != "pop3" {
+		t.Errorf("fallback wrong: %+v", got)
 	}
 }
 

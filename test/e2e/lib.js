@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const net = require('net');
+const tls = require('tls');
 const { chromium } = require('playwright');
 
 // Config: a JSON file named by COWSEC_E2E_CONFIG, or the first argument. See config.example.json.
@@ -134,4 +136,49 @@ function reporter() {
   return { check, done, results };
 }
 
-module.exports = { loadConfig, totp, browser, signIn, go, snap, sanitize, api, reporter };
+// Send one message through SMTP submission (STARTTLS, AUTH PLAIN). The server is cfg.mail.smtpHost,
+// or the console's address. Resolves with the last reply, rejects with the server's error.
+function smtpSend(cfg, { user, pass, from, to, subject, body }) {
+  const host = (cfg.mail && cfg.mail.smtpHost) || (cfg.console && cfg.console.ip) || new URL(cfg.console.url).hostname;
+  const port = (cfg.mail && cfg.mail.smtpPort) || 587;
+  return new Promise((resolve, reject) => {
+    let sock = net.connect({ host, port, timeout: 30000 });
+    let buf = '';
+    let waiter = null;
+    const onData = (d) => {
+      buf += d.toString();
+      const m = buf.match(/(?:^|\r\n)(\d{3}) [^\r\n]*\r\n$/);
+      if (m && waiter) { const w = waiter, reply = buf; waiter = null; buf = ''; w(reply, Number(m[1])); }
+    };
+    const expect = (code) => new Promise((ok, bad) => {
+      waiter = (reply, got) => (got === code ? ok(reply) : bad(new Error(`SMTP ${got}: ${reply.trim().split('\r\n').pop()}`)));
+    });
+    const cmd = (line, code) => { const p = expect(code); sock.write(line + '\r\n'); return p; };
+    sock.on('data', onData);
+    sock.on('error', reject);
+    sock.on('timeout', () => { sock.destroy(); reject(new Error(`SMTP ${host}:${port} timed out`)); });
+    (async () => {
+      await expect(220);
+      await cmd('EHLO cowsec-e2e.test', 250);
+      await cmd('STARTTLS', 220);
+      sock.removeListener('data', onData);
+      sock = tls.connect({ socket: sock, servername: net.isIP(host) ? undefined : host, rejectUnauthorized: false });
+      sock.on('data', onData);
+      sock.on('error', reject);
+      await new Promise((ok) => sock.once('secureConnect', ok));
+      await cmd('EHLO cowsec-e2e.test', 250);
+      await cmd('AUTH PLAIN ' + Buffer.from(`\0${user}\0${pass}`).toString('base64'), 235);
+      await cmd(`MAIL FROM:<${from}>`, 250);
+      await cmd(`RCPT TO:<${to}>`, 250);
+      await cmd('DATA', 354);
+      const id = `<${crypto.randomBytes(8).toString('hex')}@cowsec-e2e.test>`;
+      const msg = [`From: <${from}>`, `To: <${to}>`, `Subject: ${subject}`, `Message-ID: ${id}`, `Date: ${new Date().toUTCString()}`, '', body || 'Moo.', '.'].join('\r\n');
+      const reply = await cmd(msg, 250);
+      await cmd('QUIT', 221).catch(() => {});
+      sock.end();
+      resolve({ reply, messageId: id.slice(1, -1) });
+    })().catch((e) => { sock.destroy(); reject(e); });
+  });
+}
+
+module.exports = { loadConfig, totp, browser, signIn, go, snap, sanitize, api, reporter, smtpSend };

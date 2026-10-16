@@ -174,6 +174,34 @@ One page for keeping watch:
 
 <p align="center"><img src="img/mail/lookout.webp" alt="The Lookout page" width="900"></p>
 
+### Herd Health (Dashboard)
+
+How the farm's mail is flowing, over the last 24 hours, 7 days or 30 days:
+- **Tiles** for mail received from outside, mail your users sent, spam caught (refused by rspamd or delivered to Junk), mail turned away at the gate, bounces and failed sign-ins. Each has a sparkline and the change from the period before.
+- **Mail flow:** a stacked chart of mail into mailboxes, out to other servers, spam, refusals, and bounces or delays. Hover a bar for its numbers; click a legend item to hide it.
+- **Failed sign-ins** over time, counted once per wrong password whatever the protocol. (Postfix checks SMTP passwords through Dovecot, so reading both logs naively counts each one twice.)
+- **Why mail didn't get through:** the main reasons, grouped: unknown recipient, sender on a blocklist, sender's domain doesn't accept mail, spam, bounces and delays with the remote server's reason.
+- **Mailboxes:** the busiest, with sent, received, bounced and failed sign-ins, and a shortcut into the mail trail.
+
+mailcow only keeps the last few thousand log lines, so CowSec reads Postfix, Dovecot and rspamd's history every minute and keeps hourly counts for 31 days. Each line is counted once, however often it is read. If mail arrives faster than CowSec reads it and mailcow's log rolls over in between, the page says when counts may be low.
+
+<p align="center"><img src="img/mail/herd-health.webp" alt="Herd Health: the mail dashboard" width="900"></p>
+
+### Hoofprints (Mail trail)
+
+Search by sender, recipient, subject, queue ID, Message-ID or IP address; filter by outcome (delivered, delayed, bounced, refused, spam) and direction (incoming, outgoing, between your mailboxes). Open a message to follow its journey step by step:
+1. **Arrived:** the server it came from and its HELO name, or the signed-in user who sent it.
+2. **rspamd:** the verdict, the score against the refusal threshold, and the rules that scored. The subject comes from rspamd's history; Postfix doesn't log it.
+3. **Accepted into the queue**, with its size.
+4. **Each recipient:** delivered to a mailbox, handed to the recipient's server, delayed (with the reason and how many tries so far), or bounced with the server's reason. A bounce links to the delivery report Postfix sent back.
+
+Mail refused at the gate shows the reason and the SMTP code; it has no subject, because the sender was refused before sending the message. Postfix doesn't log rspamd's verdict against a queue ID, so CowSec matches them by Message-ID, or by time, client address, sender and recipients.
+
+The trail keeps 7 days, up to 20,000 messages.
+
+<p align="center"><img src="img/mail/mail-trail.webp" alt="Hoofprints: the mail trail" width="900"></p>
+<p align="center"><img src="img/mail/mail-journey.webp" alt="One message's journey" width="900"></p>
+
 ### Show Ribbons (Deliverability)
 
 Every domain gets a prize rosette, A to F, for how other mail servers will treat its mail. Each grade is built from checks: MX, SPF (strict or soft), DKIM, DMARC policy, MTA-STS (and whether its policy is actually reachable), TLS reporting, plus two for the server itself: reverse DNS, and seven blocklists. Every failing check says how to fix it.
