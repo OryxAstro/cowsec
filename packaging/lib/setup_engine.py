@@ -256,6 +256,86 @@ def apt_install(r, pkgs, no_start=False):
             os.remove(POLICY_RC)
 
 
+# ---------------------------------------------------------------- safety net
+
+SNAPSHOT_DIR = "/var/backups/cowsec"
+SNAPSHOT_POINTER = os.path.join(STATE_DIR, "pre-install-snapshot")
+MAILCOW_FILES = ("mailcow.conf", "docker-compose.override.yml", "data/conf/postfix/extra.cf", "data/assets/ssl")
+
+
+def step_snapshot(c, r, ctx):
+    """Before anything changes: save mailcow's settings and certificates, CrowdSec's config and
+    the firewall rules in one archive, so `cowsec-setup restore-mailcow` can put mailcow back."""
+    import tarfile, io
+    mc = ctx["mailcow"]["dir"]
+    os.makedirs(SNAPSHOT_DIR, mode=0o700, exist_ok=True)
+    os.chmod(SNAPSHOT_DIR, 0o700)
+    path = os.path.join(SNAPSHOT_DIR, "pre-install-%s.tar.gz" % time.strftime("%Y%m%d-%H%M%S"))
+    def add_text(tar, name, text):
+        data = text.encode()
+        info = tarfile.TarInfo(name)
+        info.size, info.mtime, info.mode = len(data), int(time.time()), 0o600
+        tar.addfile(info, io.BytesIO(data))
+    with tarfile.open(path, "w:gz") as tar:
+        for rel in MAILCOW_FILES:
+            src = os.path.join(mc, rel)
+            if os.path.exists(src):
+                tar.add(src, arcname="mailcow/" + rel)
+        if os.path.isdir(CS_DIR):
+            tar.add(CS_DIR, arcname="crowdsec" + CS_DIR)
+        for name, cmd in (("iptables.rules", ["iptables-save"]), ("ip6tables.rules", ["ip6tables-save"]), ("nftables.rules", ["nft", "list", "ruleset"])):
+            rc, out = run(cmd)
+            if rc == 0:
+                add_text(tar, "firewall/" + name, out + "\n")
+        add_text(tar, "MANIFEST", "CowSec pre-install snapshot\ncreated: %s\nmailcow: %s\nrestore: sudo cowsec-setup restore-mailcow --from %s\n"
+                 % (time.strftime("%Y-%m-%d %H:%M:%S %Z"), mc, path))
+    os.chmod(path, 0o600)
+    write(SNAPSHOT_POINTER, path + "\n", mode=0o600, keep_backup=False)
+    r.log("saved mailcow's settings, certificates, CrowdSec's config and the firewall rules to %s" % path)
+
+
+def restore_mailcow(r, path=None):
+    """Put mailcow's own files back exactly as they were before CowSec, give 80/443 back to
+    mailcow's nginx and restart it. CrowdSec and its bouncers are left running."""
+    import tarfile
+    if not path:
+        if not os.path.exists(SNAPSHOT_POINTER):
+            raise StepError("no pre-install snapshot recorded; look in %s" % SNAPSHOT_DIR)
+        path = open(SNAPSHOT_POINTER).read().strip()
+    if not os.path.isfile(path):
+        raise StepError("snapshot not found: %s" % path)
+    mc = find_mailcow()
+    if not mc:
+        raise StepError("mailcow not found")
+    with tarfile.open(path, "r:gz") as tar:
+        members = [m for m in tar.getmembers() if m.name.startswith("mailcow/") and ".." not in m.name.split("/") and (m.isfile() or m.isdir())]
+        if not any(m.name == "mailcow/mailcow.conf" for m in members):
+            raise StepError("this snapshot has no mailcow.conf")
+        # keep today's files next to the restored ones, in case they're wanted later
+        for rel in MAILCOW_FILES:
+            cur = os.path.join(mc, rel)
+            if os.path.isfile(cur):
+                shutil.copy2(cur, cur + ".before-restore-" + time.strftime("%Y%m%d%H%M%S"))
+        r.log("stopping the OpenResty edge so mailcow's web server can take 80/443 again")
+        r.sh(["systemctl", "disable", "--now", "openresty"], check=False)
+        r.sh(["systemctl", "disable", "--now", "cowsec-cert-watch.path"], check=False)
+        ssl = os.path.join(mc, "data/assets/ssl")
+        if any(m.name.startswith("mailcow/data/assets/ssl/") for m in members) and os.path.isdir(ssl):
+            shutil.move(ssl, ssl + ".before-restore-" + time.strftime("%Y%m%d%H%M%S"))
+        for m in members:
+            m.name = m.name[len("mailcow/"):]
+            if m.name:
+                try:
+                    tar.extract(m, mc, filter="data")
+                except TypeError:  # Python before 3.11.4
+                    tar.extract(m, mc)
+                if m.isfile():
+                    r.log("restored " + m.name)
+    r.log("restarting mailcow with its original settings")
+    compose(mc, ["up", "-d"], r, check=False)
+    return path
+
+
 # ---------------------------------------------------------------- mailcow discovery
 
 def find_mailcow():
@@ -1548,6 +1628,7 @@ def step_finish(c, r, ctx):
 
 
 STEPS = [
+    ("snapshot", "Save mailcow's settings, CrowdSec and the firewall rules first", lambda c: c["mailcow"]["mode"] == "existing", step_snapshot),
     ("docker", "Install Docker from its official repository", lambda c: c["mailcow"]["mode"] == "install" and docker_major() < 24, step_docker),
     ("mailcow-install", "Install mailcow-dockerized (mailcow's own installer)", lambda c: c["mailcow"]["mode"] == "install", step_mailcow_install),
     ("adopt", "Take over the existing setup (originals kept)", lambda c: bool(detect_existing()), step_adopt),

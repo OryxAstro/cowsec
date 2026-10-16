@@ -98,10 +98,12 @@ CowSec does all of that for you from a browser wizard, then keeps it running wit
 
 **🏡 The Farm: mailcow management**
 Run mailcow's day-to-day admin from CowSec, behind its 2FA sign-in and audit log:
-- domains and mailboxes, including quotas, password resets and last logins;
-- aliases and catch-alls;
-- a live DNS checklist per domain (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover) with copy buttons and a zone-file download;
-- the quarantine, the mail queue (retry / hold / delete) and mailcow's logs;
+- domains and mailboxes, including quotas, password resets, required 2FA, send-as rights, spam thresholds, app passwords and disposable addresses;
+- aliases, catch-alls, alias domains and per-domain footers with a live preview;
+- a live DNS checklist per domain (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover) with copy buttons, a zone-file download, and DKIM key rotation with no gap in signing;
+- a safe quarantine preview (plain text only, with the rules that held each message, disguised links and risky attachments), the mail queue and mailcow's logs;
+- **mailbox security:** sign-ins with country flags and failed attempts with their CrowdSec ban status, plus a one-click **lock-down** you can undo;
+- the **Lookout** page: outbound volume per sender, admins without 2FA, password policy and forwarding hosts;
 - domain admins and their permissions, rate limits, TLS policies, relay hosts and transports;
 - mailcow's own **netfilter** ban engine, side by side with CrowdSec or with CrowdSec enforcing its bans.
 
@@ -139,8 +141,8 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 
 | Setup wizard | |
 |---|---|
-| <img src="docs/img/setup/02-checks.webp" alt="Pre-flight checks"> | <img src="docs/img/setup/04-certificates.webp" alt="Certificates"> |
-| <img src="docs/img/setup/05-access.webp" alt="Access"> | <img src="docs/img/setup/08-installing.webp" alt="Installing"> |
+| <img src="docs/img/setup/02-checks.webp" alt="Pre-flight checks"> | <img src="docs/img/setup/05-certificates.webp" alt="Certificates"> |
+| <img src="docs/img/setup/06-access.webp" alt="Access"> | <img src="docs/img/setup/09-installing.webp" alt="Installing"> |
 
 | Console | |
 |---|---|
@@ -152,6 +154,8 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | <img src="docs/img/mail/farm.webp" alt="Farmhouse"> | <img src="docs/img/mail/mailboxes.webp" alt="Mailboxes"> |
 | <img src="docs/img/mail/dns-records.webp" alt="DNS records checklist"> | <img src="docs/img/mail/queue.webp" alt="Mail queue"> |
 | <img src="docs/img/mail/farmhands.webp" alt="Domain admins"> | <img src="docs/img/console/netfilter.webp" alt="mailcow netfilter and CrowdSec"> |
+| <img src="docs/img/mail/mailbox-lockdown.webp" alt="Mailbox security and the lock-down playbook"> | <img src="docs/img/mail/lookout.webp" alt="Lookout: outbound mail, admins and 2FA, password policy"> |
+| <img src="docs/img/mail/quarantine-preview.webp" alt="A quarantined message, shown safely"> | <img src="docs/img/mail/domain-footer.webp" alt="Domain footer with live preview"> |
 
 </details>
 
@@ -164,7 +168,7 @@ Open the address, paste the token and follow the wizard. The full walkthrough wi
 | 🌐 [Console access](docs/access.md) | LAN, Cloudflare Tunnel, internet, SSH |
 | 🔐 [Certificates](docs/certificates.md) | DNS-01 providers, per-domain certificates, renewal |
 | 🐄 [Ban policy](docs/ban-policy.md) | Home countries, abroad rule, escalation, allowlists |
-| 🏡 [Managing mailcow](docs/mailcow.md) | Domains, mailboxes, aliases, DKIM, quarantine, queue, logs, domain admins, rate limits, TLS, relays, netfilter |
+| 🏡 [Managing mailcow](docs/mailcow.md) | Domains, mailboxes, aliases, DKIM, quarantine, queue, logs, mailbox security and lock-down, domain admins, rate limits, TLS, relays, netfilter |
 | 🛡️ [Security model](docs/security.md) | Privileges, sign-in, setup token, what leaves the server |
 | 🔧 [Maintenance](docs/maintenance.md) | Updates, reverting the edge, uninstalling |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Lock-outs, clocks, certificates, OpenResty |

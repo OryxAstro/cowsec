@@ -94,10 +94,21 @@ sudo cowsec-setup revert-edge
 
 This stops OpenResty and restores the `mailcow.conf` from before CowSec first changed it, so mailcow's nginx takes 80/443 again. CrowdSec and the firewall bouncer keep running. If you used DNS-01, set `SKIP_LETS_ENCRYPT=n` in `mailcow.conf` and run `docker compose up -d` if you want mailcow's own Let's Encrypt back.
 
+## Putting mailcow back as it was
+
+```bash
+sudo cowsec-setup restore-mailcow                 # from the snapshot taken at install
+sudo cowsec-setup restore-mailcow --from FILE     # or a specific /var/backups/cowsec/pre-install-*.tar.gz
+```
+
+This restores mailcow's settings and certificates from the snapshot CowSec took before its first change: `mailcow.conf`, `extra.cf`, `docker-compose.override.yml` and `data/assets/ssl`. It also stops and disables the OpenResty edge so mailcow's own web server takes ports 80 and 443 again, then restarts mailcow. Today's versions of those files are kept alongside as `*.before-restore-<time>`. It asks you to type RESTORE first; add `--yes` to skip that.
+
+CrowdSec and the firewall bouncer keep running, so the server stays protected. The snapshot also holds CrowdSec's configuration and the firewall rules from before the install, in case you want to compare.
+
 ## Uninstalling
 
 ```bash
-sudo cowsec-setup revert-edge          # if you used the edge
+sudo cowsec-setup restore-mailcow      # mailcow's settings as before CowSec (or just revert-edge)
 sudo apt remove cowsec                 # stops the console; CrowdSec keeps protecting you
 sudo apt purge cowsec                  # also removes /etc/cowsec and /var/lib/cowsec
 ```

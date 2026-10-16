@@ -80,7 +80,11 @@ A **red** check blocks the install. **Amber** is advice.
 
 Choose **Protect my existing mailcow**, or, on a server without mailcow, **Install mailcow, then protect it**.
 
-<p align="center"><img src="img/setup/fresh-mailserver.webp" alt="Your mail server: protect an existing mailcow or install one" width="900"></p>
+<p align="center"><img src="img/setup/03-mailserver.webp" alt="Your mail server: protect the existing mailcow" width="900"></p>
+
+On a server that already runs mailcow, **Protect my existing mailcow** is chosen for you. On a bare server, only the install option is available:
+
+<p align="center"><img src="img/setup/fresh-mailserver.webp" alt="Your mail server: install mailcow on a bare server" width="900"></p>
 
 To install, CowSec asks exactly the questions mailcow's own `generate_config.sh` asks, with the same defaults:
 
@@ -128,13 +132,13 @@ CrowdSec, the mailcow log readers and the firewall bouncer are always installed.
 | **Manage mailcow from CowSec** | Domains, mailboxes, aliases, DKIM, quarantine, queue and logs from the console, via mailcow's API (localhost only). |
 | **Smart ban policy** | Stricter rule for failed logins from abroad, plus escalating bans for repeat offenders. |
 
-<p align="center"><img src="img/setup/03-protection.webp" alt="Protection options" width="900"></p>
+<p align="center"><img src="img/setup/04-protection.webp" alt="Protection options" width="900"></p>
 
 ## 6. Certificates
 
 Pick **DNS-01** to get certificates through your DNS provider, with no port 80 and with wildcard support. Search for your provider among the 190+ that lego supports. The form shows exactly the credentials that provider needs.
 
-<p align="center"><img src="img/setup/04-certificates.webp" alt="DNS-01 certificates with a provider picker" width="900"></p>
+<p align="center"><img src="img/setup/05-certificates.webp" alt="DNS-01 certificates with a provider picker" width="900"></p>
 
 > [!TIP]
 > Keep **One certificate per domain** on. A shared certificate lists every domain you host to anyone who looks at it. Turn on **Test run** the first time to prove your credentials against Let's Encrypt's staging servers.
@@ -145,7 +149,7 @@ Prefer to keep mailcow's own Let's Encrypt? Choose that card instead: the edge p
 
 Choose how you'll reach the console once setup closes:
 
-<p align="center"><img src="img/setup/05-access.webp" alt="Console access modes" width="900"></p>
+<p align="center"><img src="img/setup/06-access.webp" alt="Console access modes" width="900"></p>
 
 | Mode | Exposed | Best for |
 |---|---|---|
@@ -160,23 +164,25 @@ See [access.md](access.md) for the details of each.
 
 Create the first CowSec account. Passwords need 12+ characters. You'll enrol an authenticator app at your first sign-in.
 
-<p align="center"><img src="img/setup/06-account.webp" alt="Create the admin account" width="720"></p>
+<p align="center"><img src="img/setup/07-account.webp" alt="Create the admin account" width="720"></p>
 
 ## 9. Review and install
 
 Check the summary, then **Install**.
 
-<p align="center"><img src="img/setup/07-review.webp" alt="Review before installing" width="900"></p>
+If mailcow is already running on the server, a box explains the safety net and asks you to confirm you have a recent backup before **Install** becomes available. Any backup will do: a VM or cloud snapshot, your usual backup, or mailcow's own `helper-scripts/backup_and_restore.sh`. Before its first change, CowSec also saves mailcow's settings and certificates, CrowdSec's configuration and the firewall rules to `/var/backups/cowsec/pre-install-<time>.tar.gz`. `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was, at any time.
+
+<p align="center"><img src="img/setup/08-review.webp" alt="Review before installing" width="900"></p>
 
 Each step reports live, with the full log underneath. Every file CowSec changes is backed up first (`*.cowsec-bak-<time>`). If the edge can't start, mailcow's original web settings are restored automatically.
 
-<p align="center"><img src="img/setup/08-installing.webp" alt="Installation progress" width="900"></p>
+<p align="center"><img src="img/setup/09-installing.webp" alt="Installation progress" width="900"></p>
 
-<p align="center"><img src="img/setup/09-installed.webp" alt="Installation complete" width="900"></p>
+<p align="center"><img src="img/setup/10-installed.webp" alt="Installation complete" width="900"></p>
 
 **Finish and close setup** stops the wizard for good. Port 9443 closes.
 
-<p align="center"><img src="img/setup/10-finished.webp" alt="Setup finished" width="720"></p>
+<p align="center"><img src="img/setup/11-finished.webp" alt="Setup finished" width="720"></p>
 
 ## 10. First sign-in and 2FA
 

@@ -33,7 +33,7 @@ Per-domain is more private: a shared certificate is a public list of everyone yo
 
 ## Credentials
 
-<p align="center"><img src="img/setup/04-certificates.webp" alt="Choosing a DNS provider in the setup wizard" width="820"></p>
+<p align="center"><img src="img/setup/05-certificates.webp" alt="Choosing a DNS provider in the setup wizard" width="820"></p>
 
 Create the narrowest credential your provider allows. For Cloudflare, an **API token** with *Zone → DNS → Edit* on just your mail zones (`CF_DNS_API_TOKEN`). Credentials are stored in `/etc/cowsec/dns.env` (mode 0600, root). They are never shown in the UI or logs.
 

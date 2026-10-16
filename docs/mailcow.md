@@ -151,6 +151,9 @@ The shield button on a mailbox, or the **Security** tab when editing one, shows:
 
 CowSec remembers what it changed, so **Undo** puts each part back: sign-in, app passwords, the previous sending limit, and optionally the bans.
 
+<p align="center"><img src="img/mail/mailbox-lockdown.webp" alt="The lock-down playbook" width="900"></p>
+<p align="center"><img src="img/mail/mailbox-locked.webp" alt="A locked-down mailbox, ready to undo" width="900"></p>
+
 ### Lookout (Mail security)
 
 One page for keeping watch:
@@ -160,6 +163,8 @@ One page for keeping watch:
 - **Admins and two-factor sign-in:** every mailcow admin and domain admin, and whether they use 2FA.
 - **Password policy:** minimum length and required character types for mailbox and admin passwords.
 - **Forwarding hosts:** servers allowed to pass mail on to this one, such as a backup MX.
+
+<p align="center"><img src="img/mail/lookout.webp" alt="The Lookout page" width="900"></p>
 
 ### Farm Log
 

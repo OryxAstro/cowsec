@@ -23,7 +23,7 @@ sudo cowsec-setup access local
 
 ## LAN
 
-<p align="center"><img src="img/setup/05-access.webp" alt="Choosing console access in the setup wizard" width="820"></p>
+<p align="center"><img src="img/setup/06-access.webp" alt="Choosing console access in the setup wizard" width="820"></p>
 
 Point the hostname at the server in your **local** DNS (router, Pi-hole, AdGuard, Blocky...). The certificate comes from your DNS-01 setup. With mailcow's own Let's Encrypt, the hostname is added to `ADDITIONAL_SAN`, so it must also resolve publicly for the HTTP-01 check, even though the console then refuses non-LAN visitors.
 

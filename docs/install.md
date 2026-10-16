@@ -19,6 +19,26 @@
 
 Back up before you start: a mailcow backup (`helper-scripts/backup_and_restore.sh`) and a VM snapshot if you can. CowSec also backs up every file it changes (`<file>.cowsec-bak-<timestamp>`).
 
+## Installing on a server that already handles mail
+
+CowSec is built to be added to a working mailcow server, and it was developed and tested on one. Still, this is a server people rely on, so:
+
+1. **Back up first.** Any of these will do:
+   - a VM or cloud snapshot, if your server is a virtual machine or VPS;
+   - your usual backup;
+   - mailcow's own backup, which works on any server, bare metal included: `sudo mkdir -p /var/backups/mailcow && cd /opt/mailcow-dockerized && sudo MAILCOW_BACKUP_LOCATION=/var/backups/mailcow ./helper-scripts/backup_and_restore.sh backup all`.
+
+   CowSec saves its own "before" state (below), but that covers what CowSec changes, not your mail.
+2. **Look before you leap.** `sudo cowsec-setup check` changes nothing; it shows what CowSec found and anything it would refuse.
+3. **Pick a quiet time.** Mail keeps flowing throughout. mailcow's web interface (webmail, admin, autodiscover) is unavailable for about a minute while the edge takes over ports 80 and 443.
+4. **Read the review step.** The wizard lists every choice before anything happens, and asks you to confirm you have a backup.
+
+**The safety net:**
+- Before the first change, CowSec saves mailcow's settings and certificates (`mailcow.conf`, `extra.cf`, `docker-compose.override.yml`, `data/assets/ssl`), CrowdSec's configuration and the current firewall rules to `/var/backups/cowsec/pre-install-<time>.tar.gz`.
+- Every file it edits is also backed up next to the original as `<file>.cowsec-bak-<time>`.
+- If the OpenResty edge can't start, mailcow's web settings are put back automatically.
+- `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was from the snapshot at any time. It stops the edge, restores those files, and restarts mailcow. CrowdSec keeps protecting the server; see [Uninstalling](maintenance.md#uninstalling) to remove it too.
+
 ## Install the package
 
 ```bash

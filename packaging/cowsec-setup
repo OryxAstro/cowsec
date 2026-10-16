@@ -10,6 +10,7 @@
   cowsec-setup mailcow-api     let the console manage mailcow (domains, mailboxes, queue...) via mailcow's API
   cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
   cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
+  cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
   cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys
@@ -115,6 +116,22 @@ def mailcow_api():
     print(f"{G}The console can now manage mailcow.{N}")
 
 
+def restore_mailcow(src, yes):
+    path = src or (open(se.SNAPSHOT_POINTER).read().strip() if os.path.exists(se.SNAPSHOT_POINTER) else "")
+    if not path:
+        sys.exit("No pre-install snapshot recorded. Snapshots are in %s; pass one with --from." % se.SNAPSHOT_DIR)
+    print("This puts mailcow's settings and certificates back exactly as they were before CowSec:")
+    print("  snapshot: %s" % path)
+    print("  - stops the OpenResty edge, so mailcow's own web server takes ports 80/443 again")
+    print("  - restores mailcow.conf, extra.cf, docker-compose.override.yml and data/assets/ssl")
+    print("  - restarts mailcow (mail is offline for a minute or two)")
+    print("  CrowdSec and its firewall bouncer keep running; remove them with apt if you want them gone.")
+    if not yes and input("Type RESTORE to continue: ").strip() != "RESTORE":
+        sys.exit("Cancelled.")
+    se.restore_mailcow(se.Runner(echo=True), path)
+    print(f"{G}mailcow is back on its original settings.{N}")
+
+
 def reset_wizard():
     for f in ("setup-complete", "setup-token"):
         p = os.path.join(STATE, f)
@@ -156,7 +173,8 @@ def main():
     i = sub.add_parser("install"); i.add_argument("--config", required=True)
     a = sub.add_parser("access"); a.add_argument("mode", choices=["local", "lan", "wan", "tunnel"])
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
-    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
+    sub.add_parser("reset-wizard"); sub.add_parser("revert-edge")
+    rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
     args = p.parse_args()
     need_root()
     try:
@@ -174,6 +192,8 @@ def main():
             reset_wizard()
         elif args.cmd == "revert-edge":
             revert_edge()
+        elif args.cmd == "restore-mailcow":
+            restore_mailcow(args.src, args.yes)
         elif args.cmd == "migrate-legacy":
             migrate_legacy()
     except se.StepError as e:

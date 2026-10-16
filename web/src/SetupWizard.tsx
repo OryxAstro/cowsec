@@ -119,6 +119,7 @@ export default function SetupWizard() {
   const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true, mailcowApi: true });
 
   const [mcMode, setMcMode] = useState<'existing' | 'install'>('existing');
+  const [backupOk, setBackupOk] = useState(false);
   const [mcHost, setMcHost] = useState('');
   const [mcTz, setMcTz] = useState('');
   const [mcClamOff, setMcClamOff] = useState(false);
@@ -718,6 +719,20 @@ export default function SetupWizard() {
             <h2 className="text-lg font-bold text-white">{job ? (job.state === 'ok' ? 'All done' : job.state === 'failed' ? 'Installation stopped' : 'Raising the barn…') : 'Ready to install'}</h2>
             {!job && <p className="text-sm text-slate-400">Every changed file is backed up first (<code className="font-mono">*.cowsec-bak-*</code>). If the edge can't start, mailcow's web settings are put back automatically.</p>}
           </div>
+          {!job && mcMode === 'existing' && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-3">
+              <p className="flex items-center gap-2 text-sm font-semibold text-amber-100"><ShieldCheck className="w-4 h-4 text-amber-300" /> This server already handles mail</p>
+              <ul className="text-xs text-slate-300 space-y-1.5">
+                <li>• Mail keeps flowing during setup. The web interface is briefly unavailable while the edge takes over ports 80 and 443.</li>
+                <li>• Before changing anything, CowSec saves mailcow's settings and certificates, CrowdSec's configuration and the firewall rules to <code className="font-mono">/var/backups/cowsec/pre-install-…tar.gz</code>.</li>
+                <li>• To put mailcow back exactly as it was at any time: <code className="font-mono text-amber-200">sudo cowsec-setup restore-mailcow</code></li>
+              </ul>
+              <label className="flex items-start gap-2 text-sm text-white cursor-pointer">
+                <input type="checkbox" className="mt-1" checked={backupOk} onChange={(e) => setBackupOk(e.target.checked)} />
+                <span>I have a recent backup of this server.<span className="block text-xs text-slate-400">A VM or cloud snapshot, your usual backup, or mailcow's own: <code className="font-mono">helper-scripts/backup_and_restore.sh backup all</code>. CowSec's snapshot covers its own changes, not your mail.</span></span>
+              </label>
+            </div>
+          )}
           {!job && (
             <ul className="text-sm text-slate-300 space-y-1.5 border border-slate-800 rounded-2xl p-4 bg-slate-950/40">
               <li>• Mail server: <b>{mcMode === 'install' ? `install mailcow (${mcBranch}) as ${mcHost} · ${mcTz}${mcClamOff ? ' · ClamAV off' : ''}` : `protect ${pre?.mailcow.hostname || 'the existing mailcow'}`}</b></li>
@@ -796,7 +811,7 @@ export default function SetupWizard() {
           </button>
         )}
         {step === 6 && !job && (
-          <button onClick={install} disabled={busy} className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer">
+          <button onClick={install} disabled={busy || (mcMode === 'existing' && !backupOk)} className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 cursor-pointer">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Server className="w-4 h-4" />} Install
           </button>
         )}

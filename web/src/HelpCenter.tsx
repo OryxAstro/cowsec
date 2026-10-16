@@ -42,10 +42,22 @@ const MANUAL: Article[] = [
       { tip: 'netfilter never bans private (LAN) addresses. That is mailcow\'s design.' }] },
   { id: 'farm', group: 'The Farm', title: 'Farmhouse, Paddocks, Stalls, Ear Tags', summary: 'Overview, domains, mailboxes and aliases.',
     body: ['Everything runs through mailcow\'s API with a key that only works from this server. Every change is written to CowSec\'s audit log.', { img: mailcowFlow, alt: 'How CowSec manages mailcow' },
-      { list: ['Paddocks: add, pause or delete domains and set their limits.', 'Stalls: add mailboxes with a generated password, reset passwords, see quotas and last logins.', 'Ear Tags: aliases and catch-alls (@example.org).'] }] },
-  { id: 'brand-irons', group: 'The Farm', title: 'DNS records, Quarantine, Milk Queue, Farm Log', summary: 'DNS checklist, held mail, the outgoing queue and mailcow\'s logs.',
-    body: [{ list: ['Paddocks → DNS: every record mailcow needs (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover), checked live, with copy buttons and a zone-file download.', 'Quarantine Pen: release or delete mail rspamd held back.', 'Milk Queue: see stuck outgoing mail with the reason; retry, hold or delete it.', 'Farm Log: postfix, dovecot, rspamd, SOGo, netfilter, ACME and more.'] }] },
-  { id: 'farmhands', group: 'The Farm', title: 'Farmhands, Grazing Limits, Locked Lanes, Cattle Routes', summary: 'Domain admins, rate limits, TLS policy, relays.',
+      { list: ['Paddocks: add, pause or delete domains and set their limits and sending limit. Editing a domain adds a footer or disclaimer (with a live preview), alias domains, and senders the whole domain always allows or blocks.',
+        'Stalls: every mailbox option mailcow has, plus required two-factor sign-in and which From addresses it may use. Editing a mailbox adds tabs for its security, spam filter thresholds, app passwords (generated and shown once), disposable addresses and allow/block lists.',
+        'Ear Tags: aliases and catch-alls (@example.org).'] }] },
+  { id: 'brand-irons', group: 'The Farm', title: 'DNS records, Quarantine, Milk Queue, Farm Log', summary: 'DNS checklist, DKIM, held mail, the outgoing queue and mailcow\'s logs.',
+    body: [{ list: ['Paddocks → DNS: every record mailcow needs (MX, SPF, DMARC, DKIM, PTR, TLSA, autodiscover), checked live, with copy buttons and a zone-file download.',
+      'DKIM: create a key with your choice of selector and size, copy it to other domains, or rotate it. Rotation makes the new key first, waits until DNS shows its record, and only then switches, so no message goes out unsigned.',
+      'Quarantine Pen: open a held message to see it as plain text (nothing loads), the rules that held it, links whose text hides a different address, and risky attachments. Release it, release it and teach the filter, delete it, or always allow or block the sender.',
+      'Milk Queue: see stuck outgoing mail with the reason; retry, hold or delete it, or empty the whole queue.',
+      'Farm Log: postfix, dovecot, rspamd, SOGo, netfilter, ACME and more.'] }] },
+  { id: 'mail-security', group: 'The Farm', title: 'Mailbox security and Lookout', summary: 'Sign-ins, failed attempts, the lock-down playbook, and keeping watch.',
+    body: ['The shield button on a mailbox shows its sign-ins from the last 30 days with country flags, highlights countries it rarely uses, and lists failed sign-ins from mailcow\'s logs grouped by IP, with each IP\'s CrowdSec ban status.',
+      { list: ['Lock down this mailbox: disable sign-in (mail still arrives), require a new password, pause app passwords, sign out phones and tablets, throttle sending to one an hour, and ban the suspicious IPs. Each step is optional.',
+        'CowSec records what it changed, so Undo puts sign-in, app passwords and the old sending limit back, and can lift the bans.',
+        'Lookout (The Farm → Lookout): outbound mail per sender with unusual senders flagged, the queue by sender, rate-limit hits, locked-down mailboxes, admins without 2FA, the password policy and forwarding hosts.'] },
+      'A sudden jump in one account\'s outgoing mail, or one account sending from many addresses, is the usual sign of a stolen password. Lock it down first, then investigate.'] },
+  { id: 'farmhands', group: 'Farm Office', title: 'Farmhands, Grazing Limits, Locked Lanes, Cattle Routes', summary: 'Domain admins, rate limits, TLS policy, relays.',
     body: [{ list: ['Farmhands: domain administrators, their domains and each permission.', 'Grazing Limits: messages per second, minute, hour or day for a domain or mailbox, so a hijacked account can\'t spray spam.', 'Locked Lanes: require TLS, a verified certificate or DANE for particular destinations.', 'Cattle Routes: send mail through a smarthost per domain, or route destinations to a specific next hop.'] }] },
   { id: 'herd-watch', group: 'Herd Watch', title: 'Moo Alerts, Feed Store, Bouncers & Herd Dogs', summary: 'Detections, the hub and registered components.',
     body: [{ list: ['Moo Alerts: what CrowdSec detected, newest first.', 'Feed Store: install, upgrade or remove collections, parsers, scenarios and WAF rules.', 'Bouncers & Herd Dogs: the bouncers and machines registered with CrowdSec\'s local API.'] }] },
@@ -71,13 +83,21 @@ const KB: Article[] = [
       { code: 'sudo cowsec-setup access lan --hostname cowsec.example.com\nsudo cowsec-setup access tunnel --tunnel-token <token>\nsudo cowsec-setup access local' }] },
   { id: 'netfilter', title: 'mailcow netfilter and CrowdSec', summary: 'Two guards, one fence.',
     body: ['mailcow ships its own ban engine. Side by side, both ban independently. With "CrowdSec enforces", netfilter switches to mailcow\'s "manage externally" mode and CowSec imports its active bans and blacklist into CrowdSec every minute. Switching back hands enforcement back and removes the imported bans.'] },
-  { id: 'what-changes', title: 'What CowSec changes on the server', summary: 'Only mailcow\'s supported settings.',
-    body: ['In mailcow it only uses mailcow.conf, data/conf/postfix/extra.cf and data/assets/ssl, so ./update.sh keeps working. Every file it changes is backed up first as <file>.cowsec-bak-<time>.', { list: ['Takes over hand-built setups with backups in /root/cowsec-adopted-<time>.', 'Keeps an apt-installed CrowdSec and an existing iptables or nftables bouncer.', 'Refuses a second CrowdSec engine in a container.'] }] },
+  { id: 'what-changes', title: 'What CowSec changes on the server', summary: 'Only mailcow\'s supported settings, with a way back.',
+    body: ['In mailcow it only uses mailcow.conf, data/conf/postfix/extra.cf and data/assets/ssl, so ./update.sh keeps working. Every file it changes is backed up first as <file>.cowsec-bak-<time>.',
+      { list: ['Before changing anything on a server that already runs mailcow, it saves mailcow\'s settings and certificates, CrowdSec\'s configuration and the firewall rules to /var/backups/cowsec/pre-install-<time>.tar.gz.',
+        'sudo cowsec-setup restore-mailcow puts mailcow back exactly as it was from that snapshot: the edge stops, mailcow\'s nginx takes 80/443 again, and mailcow restarts. CrowdSec keeps protecting you.',
+        'Takes over hand-built setups with backups in /root/cowsec-adopted-<time>.', 'Keeps an apt-installed CrowdSec and an existing iptables or nftables bouncer.', 'Refuses a second CrowdSec engine in a container.'] }] },
+  { id: 'live-server', title: 'Installing on a server that already handles mail', summary: 'What to do first, what to expect, and how to undo it.',
+    body: [{ list: ['Back up first: a VM or cloud snapshot, your usual backup, or mailcow\'s own helper-scripts/backup_and_restore.sh, which works on any server. CowSec\'s own snapshot covers its changes, not your mail.', 'Run sudo cowsec-setup check: it changes nothing and shows what it found.',
+      'Pick a quiet time. Mail keeps flowing, but mailcow\'s web interface is unavailable for a minute while the edge takes over ports 80 and 443.',
+      'The review step lists every choice before anything happens, and asks you to confirm you have a backup.',
+      'If the edge can\'t start, mailcow\'s web settings are put back automatically. Afterwards, sudo cowsec-setup revert-edge or restore-mailcow undo it by hand.'] }] },
   { id: 'privacy', title: 'Security and privacy', summary: 'Privileges, sign-in and what leaves the server.',
     body: [{ img: securityLayers, alt: 'Security layers' },
       { list: ['Privileged actions go through cowsec-hostctl, which only accepts a fixed list of commands.', 'Sign-in: bcrypt or LDAP, plus TOTP or Duo, rate-limited and logged.', 'GeoIP lookups and fonts are local; CowSec doesn\'t enrol the CrowdSec Console.', 'Secrets live in root-only files and are redacted from job logs.'] }] },
   { id: 'cli', title: 'Command line reference', summary: 'Everything the console does, from the shell.',
-    body: [{ code: 'sudo cowsec-setup                 # wizard address and token, or status\nsudo cowsec-setup check           # pre-flight checks\nsudo cowsec-setup install --config FILE\nsudo cowsec-setup access lan|tunnel|wan|local ...\nsudo cowsec-setup mailcow-api     # connect the console to mailcow\'s API\nsudo cowsec-setup reset-wizard    # reopen the browser wizard\nsudo cowsec-setup revert-edge     # give 80/443 back to mailcow\nsudo cowsec auth status' }] },
+    body: [{ code: 'sudo cowsec-setup                 # wizard address and token, or status\nsudo cowsec-setup check           # pre-flight checks\nsudo cowsec-setup install --config FILE\nsudo cowsec-setup access lan|tunnel|wan|local ...\nsudo cowsec-setup mailcow-api     # connect the console to mailcow\'s API\nsudo cowsec-setup reset-wizard    # reopen the browser wizard\nsudo cowsec-setup revert-edge     # give 80/443 back to mailcow\nsudo cowsec-setup restore-mailcow # mailcow\'s settings back as before CowSec\nsudo cowsec auth status' }] },
 ];
 
 const TROUBLE: Article[] = [
@@ -280,10 +300,10 @@ export function AboutPanel() {
             <a href="https://github.com/OryxAstro/cowsec" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white">github.com/OryxAstro/cowsec <ExternalLink className="w-3 h-3" /></a>
           </div>
           <div className="flex flex-wrap justify-center gap-2 pt-1">
-            <a href="https://buymeacoffee.com/OryxAstro" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold bg-amber-300 text-slate-900 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-amber-500/30 transition-all">
+            <a href="https://buymeacoffee.com/OryxAstro" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold bg-[#ffdd00] text-[#1f1300] border border-black/10 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#ffdd00]/40 transition-all">
               <Coffee className="w-4 h-4" /> Buy Bessie a latte
             </a>
-            <a href="https://ko-fi.com/OryxAstro" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold bg-rose-400 text-white hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-500/30 transition-all">
+            <a href="https://ko-fi.com/OryxAstro" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold bg-[#ff5e5b] text-[#ffffff] border border-black/10 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-[#ff5e5b]/40 transition-all">
               <Wheat className="w-4 h-4" /> Buy Bessie some hay
             </a>
           </div>
