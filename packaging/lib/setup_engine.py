@@ -47,8 +47,10 @@ RESTY_HTTP_URL = "https://github.com/ledgetech/lua-resty-http/archive/refs/tags/
 RESTY_HTTP_SHA256 = "f52a0538b20a2d45025f318c18a138b78f6f88f07713dd0ed502183cb3d16f17"
 RESTY_DIR = "/usr/local/openresty/site/lualib/resty"
 
-# mailcow's web ports move here when the OpenResty edge takes over 80/443. Avoid 8080 (CrowdSec's
-# LAPI) and mailcow's own internal ports: 8081 (postfix's lookups), 9081, 9082 and 65510.
+# mailcow's web ports move here when the OpenResty edge takes over 80/443, bound to 127.0.0.1 as
+# mailcow's reverse-proxy guide says (docs.mailcow.email/post_installation/reverse-proxy/r_p/). Its
+# example is 8080/8443, but 8080 is CrowdSec's local API, and the guide forbids 8081, 9081 and 65510,
+# which mailcow's nginx uses internally (8081 answers postfix's forwarding-host lookups).
 EDGE_MAILCOW_HTTP = 8180
 OLD_EDGE_MAILCOW_HTTP = 8081  # used up to 0.3.9; it collided with mailcow's internal lookup server
 EDGE_MAILCOW_HTTPS = 8443

@@ -15,7 +15,7 @@
 | Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
 | An accurate clock | 2FA codes depend on it. On Proxmox/KVM, the wizard can sync to the hypervisor's clock. |
 | No other CrowdSec | If CrowdSec already runs **in a container** (e.g. a compose override), remove it first: two engines double-ban. A CrowdSec already installed on the host is reused. |
-| Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8180/8443` (installs before 0.3.10 used 8081, which clashes with mailcow's internal lookups; upgrading moves it). CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
+| Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8180/8443`, as [mailcow's reverse-proxy guide](https://docs.mailcow.email/post_installation/reverse-proxy/r_p/) describes (its example HTTP port, 8080, is taken by CrowdSec; the guide forbids 8081, which installs before 0.3.10 used, and upgrading moves it). CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
 
 Back up before you start: a mailcow backup (`helper-scripts/backup_and_restore.sh`) and a VM snapshot if you can. CowSec also backs up every file it changes (`<file>.cowsec-bak-<timestamp>`).
 
