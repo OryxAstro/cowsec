@@ -47,8 +47,10 @@ RESTY_HTTP_URL = "https://github.com/ledgetech/lua-resty-http/archive/refs/tags/
 RESTY_HTTP_SHA256 = "f52a0538b20a2d45025f318c18a138b78f6f88f07713dd0ed502183cb3d16f17"
 RESTY_DIR = "/usr/local/openresty/site/lualib/resty"
 
-# mailcow's web ports move here when the OpenResty edge takes over 80/443 (8080 is CrowdSec's LAPI).
-EDGE_MAILCOW_HTTP = 8081
+# mailcow's web ports move here when the OpenResty edge takes over 80/443. Avoid 8080 (CrowdSec's
+# LAPI) and mailcow's own internal ports: 8081 (postfix's lookups), 9081, 9082 and 65510.
+EDGE_MAILCOW_HTTP = 8180
+OLD_EDGE_MAILCOW_HTTP = 8081  # used up to 0.3.9; it collided with mailcow's internal lookup server
 EDGE_MAILCOW_HTTPS = 8443
 CONSOLE_ADDR = "127.0.0.1:8090"
 PRIVATE_RANGES = ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128", "fc00::/7"]
@@ -951,7 +953,7 @@ def preflight():
     rc, ss = run(["ss", "-ltnpH"])
     owners = {}
     for line in ss.splitlines():
-        m = re.search(r"[:\]](25|80|110|143|443|465|587|993|995|4190|8081|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\",pid=(\d+)", line)
+        m = re.search(r"[:\]](25|80|110|143|443|465|587|993|995|4190|8081|8180|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\",pid=(\d+)", line)
         if m:
             name = m.group(2)
             try:  # OpenResty's processes are called "nginx"; tell them apart by executable
@@ -971,7 +973,7 @@ def preflight():
         add("web-ports", "Web ports 80/443 available", "ok", "served by mailcow now; the edge takes them over and moves mailcow to localhost" if "docker-proxy" in web else "free")
     if not mc["found"]:
         fresh_checks(add, owners)
-    for port, what in (("8081", "mailcow HTTP (edge)"), ("8443", "mailcow HTTPS (edge)"), ("8090", "CowSec console")):
+    for port, what in ((str(EDGE_MAILCOW_HTTP), "mailcow HTTP (edge)"), ("8443", "mailcow HTTPS (edge)"), ("8090", "CowSec console")):
         o = owners.get(port, set()) - {"docker-proxy", "cowsec"}
         if o:
             add("port-" + port, "Port %s free (%s)" % (port, what), "warn", "in use by " + ", ".join(o))
@@ -1318,6 +1320,62 @@ def site_body(c, cert, key):
             "    ssl_session_cache shared:SSL:10m;\n    client_max_body_size 0;\n%s    location / { include cowsec_mailcow_proxy.conf; }\n" % (cert, key, admin))
 
 
+def http_status(host, port, path="/", timeout=3):
+    """HTTP status code from a plain-HTTP server, without following redirects (None if it doesn't answer)."""
+    import http.client
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        conn.request("GET", path, headers={"Host": "localhost"})
+        return conn.getresponse().status
+    except (OSError, http.client.HTTPException):
+        return None
+
+
+def fix_mailcow_http_port(r):
+    """Move mailcow's local web port off 8081, which CowSec used for the edge up to 0.3.9.
+
+    mailcow's nginx already listens on 8081 inside its container for postfix's forwarding-host
+    lookups, so with HTTP_PORT=8081 those lookups got mailcow's HTTP-to-HTTPS redirect instead of
+    an answer, and forwarding hosts weren't recognised. Changes only HTTP_PORT and the edge's ACME
+    proxy line, recreates only nginx-mailcow, and puts everything back if any step fails."""
+    mc = find_mailcow()
+    site = NGX + "/sites/cowsec-mailcow.conf"
+    if not mc or not os.path.exists(site):
+        return {"changed": False, "reason": "the OpenResty edge isn't in front of mailcow"}
+    conf_path = os.path.join(mc, "mailcow.conf")
+    conf = read_kv(conf_path)
+    if conf.get("HTTP_PORT") != str(OLD_EDGE_MAILCOW_HTTP) or conf.get("HTTP_BIND") != "127.0.0.1":
+        return {"changed": False, "reason": "not affected"}
+    if http_status("127.0.0.1", EDGE_MAILCOW_HTTP) is not None:
+        raise StepError("port %d is already in use, so mailcow can't move there" % EDGE_MAILCOW_HTTP)
+    old_conf, old_site = open(conf_path).read(), open(site).read()
+    r.log("moving mailcow's local web port from %d to %d (8081 clashes with mailcow's internal lookups)" % (OLD_EDGE_MAILCOW_HTTP, EDGE_MAILCOW_HTTP))
+    try:
+        set_kv(conf_path, {"HTTP_PORT": str(EDGE_MAILCOW_HTTP)}, r)
+        write(site, old_site.replace("127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP, "127.0.0.1:%d" % EDGE_MAILCOW_HTTP), r=r)
+        if r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"], check=False)[0] != 0:
+            raise StepError("OpenResty configuration test failed")
+        compose(mc, ["up", "-d", "--no-deps", "nginx-mailcow"], r)
+        for _ in range(60):
+            if http_status("127.0.0.1", EDGE_MAILCOW_HTTP) is not None:
+                break
+            time.sleep(1)
+        else:
+            raise StepError("mailcow's web server didn't come back on port %d" % EDGE_MAILCOW_HTTP)
+        r.sh(["systemctl", "reload", "openresty"])
+    except Exception as e:
+        r.log("putting the old port back: %s" % e)
+        write(conf_path, old_conf, r=r, keep_backup=False)
+        write(site, old_site, r=r, keep_backup=False)
+        compose(mc, ["up", "-d", "--no-deps", "nginx-mailcow"], r, check=False)
+        r.sh(["systemctl", "reload", "openresty"], check=False)
+        raise
+    rc, out = compose(mc, ["exec", "-T", "postfix-mailcow", "curl", "-s", "http://nginx:8081/forwardinghosts.php?host=127.0.0.1"], check=False)
+    ok = rc == 0 and "<html" not in out.lower()
+    r.log("postfix's forwarding-host lookup %s" % ("answers again" if ok else "still doesn't answer: " + out[:120]))
+    return {"changed": True, "lookup_ok": ok}
+
+
 def edge_sites(c, ctx):
     v6 = ctx["ipv6"]
     mc = ctx["mailcow"]
@@ -1395,7 +1453,8 @@ def step_edge(c, r, ctx):
     os.makedirs("/var/log/openresty", exist_ok=True)
     os.makedirs(NGX + "/sites", exist_ok=True)
     conf_path = os.path.join(mc["dir"], "mailcow.conf")
-    moving = mc["httpsBind"] != "127.0.0.1" or mc["httpsPort"] != str(EDGE_MAILCOW_HTTPS)
+    moving = (mc["httpsBind"] != "127.0.0.1" or mc["httpsPort"] != str(EDGE_MAILCOW_HTTPS)
+              or mc["httpPort"] != str(EDGE_MAILCOW_HTTP))
     write(NGX + "/nginx.conf", NGINX_CONF, r=r)
     write(NGX + "/cowsec_mailcow_proxy.conf", PROXY_CONF.replace("{https}", str(EDGE_MAILCOW_HTTPS)), r=r)
     write(NGX + "/sites/cowsec-mailcow.conf", edge_sites(c, ctx), r=r)

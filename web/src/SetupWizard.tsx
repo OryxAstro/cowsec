@@ -536,7 +536,7 @@ export default function SetupWizard() {
             </div>
           ) : (
           <Toggle on={comp.edge} onChange={(v) => setComp({ ...comp, edge: v })} label="OpenResty edge with AppSec WAF" badge="recommended"
-            hint="Puts a hardened reverse proxy in front of mailcow's web UI: every request is checked by CrowdSec and its WAF. mailcow's own web server moves to localhost (ports 8081/8443)." />
+            hint="Puts a hardened reverse proxy in front of mailcow's web UI: every request is checked by CrowdSec and its WAF. mailcow's own web server moves to localhost (ports 8180/8443)." />
           )}
           <Toggle on={comp.edge && comp.adminLanOnly} disabled={!comp.edge} onChange={(v) => setComp({ ...comp, adminLanOnly: v })} label="mailcow admin pages on the local network only"
             hint="/admin and /domainadmin answer only from private addresses. Webmail, ActiveSync and autodiscover stay public." />

@@ -205,3 +205,53 @@ class Validation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MailcowPortFix(unittest.TestCase):
+    """Up to 0.3.9 the edge put mailcow on HTTP_PORT=8081, which mailcow uses internally."""
+    def setUp(self):
+        self.root = tempfile.mkdtemp(dir=SCRATCH)
+        self.mc = os.path.join(self.root, "mailcow")
+        self.ngx = os.path.join(self.root, "ngx")
+        os.makedirs(self.mc)
+        os.makedirs(os.path.join(self.ngx, "sites"))
+        self.conf = os.path.join(self.mc, "mailcow.conf")
+        self.site = os.path.join(self.ngx, "sites", "cowsec-mailcow.conf")
+        with open(self.conf, "w") as f:
+            f.write("# mailcow\nHTTP_PORT=8081\nHTTP_BIND=127.0.0.1\nHTTPS_PORT=8443\nHTTPS_BIND=127.0.0.1\n")
+        with open(self.site, "w") as f:
+            f.write("location ^~ /.well-known/acme-challenge/ { proxy_pass http://127.0.0.1:8081; }\n")
+        self.patches = [mock.patch.object(se, "NGX", self.ngx), mock.patch.object(se, "find_mailcow", return_value=self.mc)]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_moves_port_and_edge_together(self):
+        answers = iter([None, 301])  # port free before the move, mailcow answering after it
+        with mock.patch.object(se, "http_status", side_effect=lambda *a, **k: next(answers)), \
+                mock.patch.object(se, "compose", return_value=(0, "200 PERMIT")) as comp:
+            res = se.fix_mailcow_http_port(FakeRunner())
+        self.assertEqual(res, {"changed": True, "lookup_ok": True})
+        self.assertIn("HTTP_PORT=8180", read(self.conf))
+        self.assertIn("HTTPS_PORT=8443", read(self.conf), "only the HTTP port moves")
+        self.assertIn("127.0.0.1:8180", read(self.site))
+        self.assertEqual(comp.call_args_list[0][0][1], ["up", "-d", "--no-deps", "nginx-mailcow"], "only nginx is recreated")
+
+    def test_puts_everything_back_if_mailcow_does_not_return(self):
+        before_conf, before_site = read(self.conf), read(self.site)
+        with mock.patch.object(se, "http_status", return_value=None), mock.patch.object(se, "compose", return_value=(0, "")), \
+                mock.patch.object(se.time, "sleep"):
+            with self.assertRaises(se.StepError):
+                se.fix_mailcow_http_port(FakeRunner())
+        self.assertEqual(read(self.conf), before_conf)
+        self.assertEqual(read(self.site), before_site)
+
+    def test_leaves_other_setups_alone(self):
+        with open(self.conf, "w") as f:
+            f.write("HTTP_PORT=80\nHTTP_BIND=\n")
+        with mock.patch.object(se, "compose") as comp:
+            self.assertFalse(se.fix_mailcow_http_port(FakeRunner())["changed"])
+        comp.assert_not_called()

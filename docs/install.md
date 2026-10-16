@@ -15,7 +15,7 @@
 | Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
 | An accurate clock | 2FA codes depend on it. On Proxmox/KVM, the wizard can sync to the hypervisor's clock. |
 | No other CrowdSec | If CrowdSec already runs **in a container** (e.g. a compose override), remove it first: two engines double-ban. A CrowdSec already installed on the host is reused. |
-| Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8081/8443`. CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
+| Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8180/8443` (installs before 0.3.10 used 8081, which clashes with mailcow's internal lookups; upgrading moves it). CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
 
 Back up before you start: a mailcow backup (`helper-scripts/backup_and_restore.sh`) and a VM snapshot if you can. CowSec also backs up every file it changes (`<file>.cowsec-bak-<timestamp>`).
 
@@ -152,7 +152,7 @@ An earlier hand-installed CowSec (a unit in `/etc/systemd/system` running `/opt/
 | Detection | `/etc/crowdsec/acquis.d/cowsec-mailcow.yaml` (postfix + dovecot via Docker; web logs from OpenResty or nginx-mailcow); `parsers/s02-enrich/cowsec-private-whitelist.yaml` (your LAN). |
 | Firewall | Keeps an installed bouncer. Otherwise installs `crowdsec-firewall-bouncer-iptables`. iptables bouncer: `iptables_chains: [INPUT, DOCKER-USER]`. nftables bouncer: `nftables_hooks: [input, forward]`. Both point at the local API that `local_api_credentials.yaml` names. |
 | Certificates | lego (pinned, checksum-verified) in `/usr/lib/cowsec/lego`. Secrets: `/etc/cowsec/dns.env` (root only). Certificates are copied into `data/assets/ssl/` (main + per-domain SNI folders) and `data/conf/postfix/extra.cf` + `cowsec_sni.map`. `SKIP_LETS_ENCRYPT=y`. Renewal runs on `cowsec-certs.timer`. |
-| Edge | OpenResty repo + `openresty`, `crowdsec-openresty-bouncer`; `/usr/local/openresty/nginx/conf/{nginx.conf,cowsec_mailcow_proxy.conf,sites/cowsec-mailcow.conf}`; AppSec on `127.0.0.1:7422`; mailcow.conf `HTTP_BIND/HTTPS_BIND=127.0.0.1`, `HTTP_PORT=8081`, `HTTPS_PORT=8443`. |
+| Edge | OpenResty repo + `openresty`, `crowdsec-openresty-bouncer`; `/usr/local/openresty/nginx/conf/{nginx.conf,cowsec_mailcow_proxy.conf,sites/cowsec-mailcow.conf}`; AppSec on `127.0.0.1:7422`; mailcow.conf `HTTP_BIND/HTTPS_BIND=127.0.0.1`, `HTTP_PORT=8180`, `HTTPS_PORT=8443`. |
 | Cloudflare real IP | `cowsec-cloudflare-realip.timer` (monthly), writes `conf.d/cloudflare_realip.conf`. |
 | Clock | chrony + `ptp_kvm` + `/etc/chrony/conf.d/cowsec-ptp.conf`. |
 | Ban policy | `/etc/crowdsec/profiles.yaml` (original kept as `profiles.yaml.pre-cowsec`) and `scenarios/cowsec-auth-abroad.yaml`. |

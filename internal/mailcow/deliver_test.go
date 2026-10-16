@@ -95,7 +95,7 @@ func TestListedAnswer(t *testing.T) {
 		{[]string{"127.0.0.10", "127.0.0.4"}, true},
 		{[]string{"127.255.255.254"}, false}, // Spamhaus: query refused
 		{[]string{"0.0.0.0"}, false},         // a filtering resolver's "blocked" answer
-		{[]string{"192.168.1.1"}, false},    // a resolver answering with itself
+		{[]string{"192.168.1.1"}, false},     // a resolver answering with itself
 		{nil, false},
 	} {
 		if got := listedAnswer(c.addrs); got != c.want {

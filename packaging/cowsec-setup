@@ -12,6 +12,7 @@
   cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
   cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
   cowsec-setup appsec-curate   rebuild the mail WAF (mail-stack rules block, the rest watch for scanners)
+  cowsec-setup fix-mailcow-port  move mailcow's local web port off 8081 (installs before 0.3.10)
   cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys
@@ -142,6 +143,16 @@ def appsec_curate(if_default):
         print(f"{G}mail WAF: {c['block']} rules block, {c['watch']} watch for scanners, {c['off']} off.{N}")
 
 
+def fix_mailcow_port():
+    res = se.fix_mailcow_http_port(se.Runner(echo=True))
+    if not res["changed"]:
+        print("mailcow web port: %s" % res["reason"])
+    elif res["lookup_ok"]:
+        print(f"{G}mailcow's web server moved to port {se.EDGE_MAILCOW_HTTP}; postfix's forwarding-host lookups work again.{N}")
+    else:
+        print(f"{Y}mailcow's web server moved to port {se.EDGE_MAILCOW_HTTP}, but postfix's forwarding-host lookup still fails.{N}")
+
+
 def reset_wizard():
     for f in ("setup-complete", "setup-token"):
         p = os.path.join(STATE, f)
@@ -185,7 +196,7 @@ def main():
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
     sub.add_parser("reset-wizard"); sub.add_parser("revert-edge")
     rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true")
-    ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
+    ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy"); sub.add_parser("fix-mailcow-port")
     args = p.parse_args()
     need_root()
     try:
@@ -209,6 +220,8 @@ def main():
             appsec_curate(args.if_default)
         elif args.cmd == "migrate-legacy":
             migrate_legacy()
+        elif args.cmd == "fix-mailcow-port":
+            fix_mailcow_port()
     except se.StepError as e:
         sys.exit(f"{R}error:{N} {e}")
 
