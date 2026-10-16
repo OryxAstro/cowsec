@@ -25,6 +25,7 @@ type Client struct {
 	host string // MAILCOW_HOSTNAME (sent as Host and TLS server name)
 	key  string
 	http *http.Client
+	gate func(verb string, args ...string) ([]byte, error) // host helper, for what mailcow's API can't read
 }
 
 // FromEnv returns a client, or nil when the mailcow API has not been configured.

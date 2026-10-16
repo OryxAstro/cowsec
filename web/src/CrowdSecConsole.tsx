@@ -1,5 +1,6 @@
 // CrowdSec pages: decisions, AppSec WAF, hub, alerts, bouncers & machines, whitelists.
 import Flag from './Flag';
+import MailWafPanel from './MailWafPanel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Server, Shield, Layers, CheckCircle2, Activity, Radio, RefreshCw, Download, X, Unlock, Globe, ShieldAlert, ExternalLink, Search, Trash2, RotateCcw, Boxes, AlertTriangle, ShieldCheck, Ban, Clock, Copy, Check, Package, Library,
@@ -19,6 +20,9 @@ interface CrowdSecOverview {
   bouncersCount: number;
   machinesCount: number;
   appsecRules: number;
+  appsecBlock?: number;
+  appsecWatch?: number;
+  appsecConfig?: string | null;
   scenariosCount: number;
   parsersCount: number;
   collections: number;
@@ -222,68 +226,6 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
       setCsActionToast({ message: e.message, type: 'error' });
     } finally {
       setDeletingMachine(null);
-      setTimeout(() => setCsActionToast(null), 4000);
-    }
-  };
-
-  // AppSec Rule Filtering & Toggling State
-  const [togglingRule, setTogglingRule] = useState<string | null>(null);
-  const [isBulkAppSecToggling, setIsBulkAppSecToggling] = useState(false);
-  const [appsecSearchQuery, setAppsecSearchQuery] = useState('');
-  const [appsecFilter, setAppsecFilter] = useState<'all' | 'enabled' | 'disabled' | 'vpatch' | 'generic'>('all');
-
-  const handleToggleAppSecRule = async (ruleName: string, enable: boolean) => {
-    setTogglingRule(ruleName);
-    try {
-      const res = await fetch('/api/crowdsec/appsec/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule: ruleName, enabled: enable }),
-      });
-      if (res.ok) {
-        setCsActionToast({
-          message: `${ruleName.replace('crowdsecurity/', '')} ${enable ? 'enabled' : 'disabled'} successfully`,
-          type: 'success',
-        });
-        await fetchCrowdSecAppSec();
-        fetchCrowdSecOverview();
-      } else {
-        const data = await res.json();
-        setCsActionToast({ message: data.error || 'Failed to toggle rule', type: 'error' });
-      }
-    } catch (e: any) {
-      setCsActionToast({ message: e.message, type: 'error' });
-    } finally {
-      setTogglingRule(null);
-      setTimeout(() => setCsActionToast(null), 3500);
-    }
-  };
-
-  const handleBulkToggleVirtualPatches = async (enable: boolean) => {
-    setIsBulkAppSecToggling(true);
-    try {
-      const res = await fetch('/api/crowdsec/appsec/bulk-toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enableAll: enable }),
-      });
-      if (res.ok) {
-        setCsActionToast({
-          message: enable
-            ? 'All CrowdSec CVE virtual patches enabled!'
-            : 'CVE virtual patches disabled (generic WAF rules stay on)!',
-          type: 'success',
-        });
-        await fetchCrowdSecAppSec();
-        fetchCrowdSecOverview();
-      } else {
-        const data = await res.json();
-        setCsActionToast({ message: data.error || 'Failed bulk update', type: 'error' });
-      }
-    } catch (e: any) {
-      setCsActionToast({ message: e.message, type: 'error' });
-    } finally {
-      setIsBulkAppSecToggling(false);
       setTimeout(() => setCsActionToast(null), 4000);
     }
   };
@@ -554,19 +496,7 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
   }, [activeTab, csSubTab]);
 
 
-  const filteredAppSecRules = useMemo(() => csRules.filter((r) => {
-    const isEnabled = r.status && r.status.includes('enabled');
-    if (appsecFilter === 'enabled' && !isEnabled) return false;
-    if (appsecFilter === 'disabled' && isEnabled) return false;
-    if (appsecFilter === 'vpatch' && !r.name.includes('vpatch')) return false;
-    if (appsecFilter === 'generic' && !r.name.includes('generic')) return false;
-    const q = appsecSearchQuery.toLowerCase().trim();
-    return !q || r.name.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q);
-  }), [csRules, appsecFilter, appsecSearchQuery]);
   const enabledRulesCount = useMemo(() => csRules.filter((r) => r.status && r.status.includes('enabled')).length, [csRules]);
-  const vpatchRulesCount = useMemo(() => csRules.filter((r) => r.name.includes('vpatch')).length, [csRules]);
-  const disabledRulesCount = csRules.length - enabledRulesCount;
-  const genericRulesCount = useMemo(() => csRules.filter((r) => r.name.includes('generic')).length, [csRules]);
 
   return (
     <>
@@ -656,9 +586,15 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
                   </div>
                   <div className="text-xl font-bold text-emerald-400 tracking-tight flex items-center gap-1.5">
                     <span>Active</span>
-                    <span className="text-xs px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 font-mono">
-                      {(csOverview?.appsecRules !== undefined ? csOverview.appsecRules : enabledRulesCount)} Rules
-                    </span>
+                    {csOverview?.appsecBlock !== undefined ? (
+                      <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 font-mono">
+                        {csOverview.appsecBlock} block · {csOverview.appsecWatch} watch
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 font-mono">
+                        {(csOverview?.appsecRules !== undefined ? csOverview.appsecRules : enabledRulesCount)} Rules
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-800/60 font-mono truncate">
                     HTTP Filter: port 7422
@@ -923,211 +859,8 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
               )}
 
               {/* SUB-TAB 2: APPSEC WAF & VIRTUAL PATCHES */}
-              {csSubTab === 'appsec' && (
-                <div className="space-y-4">
-                  {/* AppSec Header Banner with Bulk Controls */}
-                  <div className="bg-gradient-to-r from-indigo-950/60 via-slate-900/80 to-purple-950/60 border border-indigo-800/40 rounded-2xl p-5 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 shadow-xl">
-                    <div className="space-y-1.5 min-w-0 flex-1 pr-2 xl:pr-4">
-                      <div className="flex items-center space-x-2.5">
-                        <span className={`w-2.5 h-2.5 rounded-full ${enabledRulesCount > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}></span>
-                        <h3 className="font-bold text-base text-white">CrowdSec Layer 7 AppSec HTTP Engine</h3>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 font-mono">
-                          port 7422
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">
-                        Control individual virtual patches and Layer 7 inspection rules. The OpenResty edge sends each web request to the AppSec engine before it reaches mailcow. Toggle individual CVE protections below or use the bulk switches.
-                      </p>
-                    </div>
+              {csSubTab === 'appsec' && <MailWafPanel />}
 
-                    <div className="flex items-center gap-2 shrink-0 flex-nowrap self-start lg:self-center">
-                      <div className="bg-slate-950/80 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-mono flex items-center space-x-2 shrink-0 whitespace-nowrap">
-                        <span className="text-slate-400">Active Rules:</span>
-                        <span className="font-bold text-emerald-400">{enabledRulesCount}</span>
-                        <span className="text-slate-600">/</span>
-                        <span className="text-slate-400">{csRules.length}</span>
-                      </div>
-
-                      {/* Bulk Disable Virtual Patches */}
-                      <button
-                        onClick={() => handleBulkToggleVirtualPatches(false)}
-                        disabled={isBulkAppSecToggling || vpatchRulesCount === 0}
-                        className="flex items-center space-x-1.5 px-3 py-1.5 bg-rose-950/70 hover:bg-rose-900/70 border border-rose-700/60 text-rose-300 hover:text-white rounded-xl text-xs font-medium transition-all cursor-pointer disabled:opacity-40 shrink-0 whitespace-nowrap"
-                        title="Uninstall all 80+ third-party CVE virtual patches and keep only core WAF rules"
-                      >
-                        <Ban className={`w-3.5 h-3.5 ${isBulkAppSecToggling ? 'animate-spin' : ''}`} />
-                        <span>{isBulkAppSecToggling ? 'Updating...' : 'Disable All CVE Patches'}</span>
-                      </button>
-
-                      {/* Bulk Enable Stack-Matched Virtual Patches */}
-                      <button
-                        onClick={() => handleBulkToggleVirtualPatches(true)}
-                        disabled={isBulkAppSecToggling}
-                        className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/50 text-indigo-200 hover:text-white rounded-xl text-xs font-medium transition-all cursor-pointer disabled:opacity-40 shrink-0 whitespace-nowrap"
-                        title="Install CrowdSec's virtual-patching collection: one AppSec rule per known exploited CVE"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>Enable all CVE patches</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Filter Pills & Search Bar */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 custom-scrollbar">
-                      <button
-                        onClick={() => setAppsecFilter('all')}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                          appsecFilter === 'all'
-                            ? 'bg-indigo-600 text-white shadow-sm'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        All ({csRules.length})
-                      </button>
-                      <button
-                        onClick={() => setAppsecFilter('enabled')}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
-                          appsecFilter === 'enabled'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-emerald-300'
-                        }`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                        <span>Active ({enabledRulesCount})</span>
-                      </button>
-                      <button
-                        onClick={() => setAppsecFilter('disabled')}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                          appsecFilter === 'disabled'
-                            ? 'bg-slate-700 text-white shadow-sm'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        Disabled ({disabledRulesCount})
-                      </button>
-                      <button
-                        onClick={() => setAppsecFilter('vpatch')}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                          appsecFilter === 'vpatch'
-                            ? 'bg-rose-900/80 text-rose-200 border border-rose-600 shadow-sm'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-rose-300'
-                        }`}
-                      >
-                        Virtual Patches ({vpatchRulesCount})
-                      </button>
-                      <button
-                        onClick={() => setAppsecFilter('generic')}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                          appsecFilter === 'generic'
-                            ? 'bg-purple-900/80 text-purple-200 border border-purple-600 shadow-sm'
-                            : 'bg-slate-800/60 text-slate-400 hover:text-purple-300'
-                        }`}
-                      >
-                        Generic Exploit ({genericRulesCount})
-                      </button>
-                    </div>
-
-                    <div className="relative min-w-[240px]">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        placeholder="Search CVE or app (e.g. Roundcube, PHP)..."
-                        value={appsecSearchQuery}
-                        onChange={(e) => setAppsecSearchQuery(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Rules Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {filteredAppSecRules.map((rule) => {
-                      const isVpatch = rule.name.includes('vpatch');
-                      const isGeneric = rule.name.includes('generic');
-                      const isEnabled = rule.status && rule.status.includes('enabled');
-                      const isTogglingThis = togglingRule === rule.name;
-
-                      return (
-                        <div
-                          key={rule.name}
-                          className={`bg-slate-900/70 border rounded-2xl p-4 space-y-3 transition-all flex flex-col justify-between shadow-md ${
-                            isEnabled
-                              ? 'border-emerald-500/40 bg-slate-900/90'
-                              : 'border-slate-800/70 opacity-75 hover:opacity-100 hover:border-slate-700'
-                          }`}
-                        >
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                                isVpatch
-                                  ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60'
-                                  : isGeneric
-                                  ? 'bg-purple-950/80 text-purple-300 border border-purple-800/60'
-                                  : 'bg-indigo-950/80 text-indigo-300 border border-indigo-800/60'
-                              }`}>
-                                {isVpatch ? 'CVE Virtual Patch' : isGeneric ? 'Generic Exploit' : 'Core Rule'}
-                              </span>
-
-                              {/* Interactive Enable/Disable Toggle */}
-                              <button
-                                onClick={() => handleToggleAppSecRule(rule.name, !isEnabled)}
-                                disabled={isTogglingThis || isBulkAppSecToggling}
-                                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer ${
-                                  isTogglingThis
-                                    ? 'bg-amber-950/70 border border-amber-500 text-amber-300 animate-pulse'
-                                    : isEnabled
-                                    ? 'bg-emerald-950/80 border border-emerald-600/70 text-emerald-300 hover:bg-rose-950/80 hover:border-rose-600 hover:text-rose-300'
-                                    : 'bg-slate-800 border border-slate-700 text-slate-400 hover:bg-emerald-950/80 hover:border-emerald-600 hover:text-emerald-300'
-                                }`}
-                                title={isEnabled ? "Click to disable this patch" : "Click to enable this patch"}
-                              >
-                                {isTogglingThis ? (
-                                  <span>Saving...</span>
-                                ) : (
-                                  <>
-                                    <span className={`w-2 h-2 rounded-full ${isEnabled ? 'bg-emerald-400' : 'bg-slate-500'}`}></span>
-                                    <span>{isEnabled ? 'Enabled' : 'Disabled'}</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-
-                            <h4 className="font-mono text-xs font-bold text-white break-all leading-tight">
-                              {rule.name.replace('crowdsecurity/', '')}
-                            </h4>
-                            <p className="text-xs text-slate-400 leading-relaxed min-h-[32px]">
-                              {rule.description || 'AppSec Layer 7 virtual patch & protection pattern'}
-                            </p>
-                          </div>
-
-                          <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                            <span>Remediation: <strong className={isEnabled ? "text-rose-400" : "text-slate-600"}>DROP / BAN</strong></span>
-                            <span>v{rule.local_version || '1.0'}</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {filteredAppSecRules.length === 0 && (
-                    <div className="text-center py-12 bg-slate-900/30 border border-slate-800 rounded-2xl p-6">
-                      <p className="text-sm text-slate-400">No AppSec rules found matching your filter or search.</p>
-                      <button
-                        onClick={() => {
-                          setAppsecFilter('all');
-                          setAppsecSearchQuery('');
-                        }}
-                        className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
-                      >
-                        Reset AppSec Filters
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* SUB-TAB: HUB CATALOG & PLUGINS */}
               {csSubTab === 'hub' && (
                 <div className="space-y-6">
                   {/* Category Filter Selector - Directly matching CrowdSec Hub */}

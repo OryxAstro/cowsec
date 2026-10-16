@@ -256,6 +256,124 @@ def apt_install(r, pkgs, no_start=False):
             os.remove(POLICY_RC)
 
 
+# ---------------------------------------------------------------- mail WAF (AppSec rule curation)
+
+APPSEC_CONFIG_NAME = "cowsec/mail-waf"
+APPSEC_CONFIG_FILE = CS_DIR + "/appsec-configs/cowsec-mail-waf.yaml"
+APPSEC_WATCH_SCENARIO = CS_DIR + "/scenarios/cowsec-appsec-watch.yaml"
+APPSEC_ACQUIS = CS_DIR + "/acquis.d/cowsec-appsec.yaml"
+APPSEC_POLICY = os.path.join(STATE_DIR, "appsec-policy.json")
+# Always in the request path: probes that never belong on a mail server, whatever else it runs.
+APPSEC_BLOCK_ALWAYS = ("crowdsecurity/base-config", "crowdsecurity/vpatch-env-access", "crowdsecurity/vpatch-git-config",
+                       "crowdsecurity/vpatch-laravel-debug-mode", "crowdsecurity/vpatch-symfony-profiler",
+                       "crowdsecurity/vpatch-CVE-2017-9841", "crowdsecurity/vpatch-CVE-2024-4577", "crowdsecurity/generic-freemarker-ssti")
+# Also blocking: patches for the mail stack and webmail people run beside mailcow. Matched by
+# name and description, so future patches for these products block without a CowSec update.
+APPSEC_MAIL_RE = re.compile(r"\b(roundcube|squirrelmail|sogo|zimbra|exchange|smartermail|afterlogic|webmail|horde|rainloop|snappymail|"
+                            r"mailcow|postfix|dovecot|rspamd|nginx|openresty)\b", re.I)
+APPSEC_NEVER_BAN = ("crowdsecurity/appsec-generic-test", "crowdsecurity/experimental-no-user-agent")
+
+
+def appsec_overrides():
+    try:
+        o = json.load(open(APPSEC_POLICY)).get("overrides") or {}
+        return {k: v for k, v in o.items() if v in ("block", "watch")}
+    except Exception:
+        return {}
+
+
+def appsec_plan():
+    """Every installed AppSec rule and the mode the mail WAF gives it: block (in the request
+    path), watch (checked after the response; trips ban scanners) or off (not installed)."""
+    rc, out = run(["cscli", "appsec-rules", "list", "-a", "-o", "json"], timeout=60)
+    if rc != 0:
+        raise StepError("could not list AppSec rules: " + out[-300:])
+    data = json.loads(out)
+    items = data.get("appsec-rules", data) if isinstance(data, dict) else data
+    over = appsec_overrides()
+    rules = []
+    for i in items:
+        name = i.get("name", "")
+        if name == "crowdsecurity/base-config":
+            continue
+        installed = (i.get("status") or "").split(",")[0] == "enabled"
+        desc = i.get("description") or ""
+        auto = "block" if (name in APPSEC_BLOCK_ALWAYS or APPSEC_MAIL_RE.search(name + " " + desc)) else "watch"
+        mode = over.get(name, auto) if installed else "off"
+        rules.append({"name": name, "description": desc, "auto": auto, "mode": mode, "override": name in over, "installed": installed})
+    rules.sort(key=lambda r: ({"block": 0, "watch": 1, "off": 2}[r["mode"]], r["name"]))
+    return {"config": APPSEC_CONFIG_NAME, "active": appsec_active_config(), "rules": rules,
+            "counts": {m: sum(1 for r in rules if r["mode"] == m) for m in ("block", "watch", "off")}}
+
+
+def appsec_active_config():
+    try:
+        m = re.search(r"^\s*appsec_config:\s*(\S+)", open(APPSEC_ACQUIS).read(), re.M)
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def appsec_curate(r, only_if_default=False):
+    """Writes CowSec's mail WAF config and the scanner-ban scenario, points the edge's AppSec
+    engine at it, and checks CrowdSec accepts it, putting everything back if not."""
+    if not os.path.exists(APPSEC_ACQUIS):
+        return {"skipped": "no CowSec AppSec engine on this server"}
+    acquis = open(APPSEC_ACQUIS).read()
+    if only_if_default and appsec_active_config() not in ("crowdsecurity/appsec-default", APPSEC_CONFIG_NAME):
+        return {"skipped": "AppSec uses %s; left alone" % appsec_active_config()}
+    plan = appsec_plan()
+    block = ["crowdsecurity/base-config"] + [x["name"] for x in plan["rules"] if x["mode"] == "block"]
+    conf = ("# Managed by CowSec: the mail WAF. Rules for the mail stack block in the request path;\n"
+            "# every other rule only watches (after the response) and bans the scanners that trip it.\n"
+            "# Change a rule's mode in the console (Electric Fence) rather than here.\n"
+            "name: %s\ndefault_remediation: ban\ninband_rules:\n%s"
+            "outofband_rules:\n - crowdsecurity/vpatch-*\n - crowdsecurity/generic-*\n - crowdsecurity/experimental-*\n - crowdsecurity/appsec-generic-test\n"
+            % (APPSEC_CONFIG_NAME, "".join(" - %s\n" % n for n in block)))
+    scen = ("# Managed by CowSec: ban scanners that trip a watch-only (out-of-band) mail WAF rule.\n"
+            "type: leaky\nname: cowsec/appsec-watch\n"
+            "description: \"Probing for exploits of software this server doesn't run (CowSec mail WAF, watch-only rules)\"\n"
+            "filter: \"evt.Meta.log_type == 'appsec-info' && evt.Meta.rule_name not in [%s]\"\n"
+            "leakspeed: \"60s\"\ncapacity: 1\ngroupby: evt.Meta.source_ip\nblackhole: 1m\n"
+            "labels:\n  remediation: true\n  service: http\n  behavior: \"http:exploit\"\n  label: \"Exploit probe (watch-only WAF rule)\"\n"
+            "  confidence: 3\n  spoofable: 0\n" % ", ".join("'%s'" % n for n in APPSEC_NEVER_BAN))
+    olds = {f: (open(f).read() if os.path.exists(f) else None) for f in (APPSEC_CONFIG_FILE, APPSEC_WATCH_SCENARIO, APPSEC_ACQUIS)}
+    os.makedirs(os.path.dirname(APPSEC_CONFIG_FILE), exist_ok=True)
+    write(APPSEC_CONFIG_FILE, conf, r=r, keep_backup=False)
+    write(APPSEC_WATCH_SCENARIO, scen, r=r, keep_backup=False)
+    write(APPSEC_ACQUIS, re.sub(r"^(\s*appsec_config:\s*)\S+", r"\g<1>" + APPSEC_CONFIG_NAME, acquis, count=1, flags=re.M), r=r,
+          keep_backup=appsec_active_config() != APPSEC_CONFIG_NAME)
+    rc, out = run(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"], timeout=120)
+    if rc != 0:
+        for f, txt in olds.items():
+            if txt is None:
+                os.path.exists(f) and os.remove(f)
+            else:
+                write(f, txt, r=r, keep_backup=False)
+        raise StepError("CrowdSec rejected the mail WAF config, so the previous one was kept: " + out[-300:])
+    r.sh(["systemctl", "reload-or-restart", "crowdsec"], check=False)
+    r.log("mail WAF: %d rules block in the request path, %d watch for scanners" % (plan["counts"]["block"], plan["counts"]["watch"]))
+    return {"counts": plan["counts"], "config": APPSEC_CONFIG_NAME}
+
+
+def appsec_set_mode(name, mode, r):
+    """Pin one rule to block or watch ('auto' clears the pin), then rebuild the config."""
+    if not re.fullmatch(r"crowdsecurity/[A-Za-z0-9._-]+", name) or mode not in ("block", "watch", "auto"):
+        raise StepError("invalid rule or mode")
+    try:
+        pol = json.load(open(APPSEC_POLICY))
+    except Exception:
+        pol = {}
+    over = pol.get("overrides") or {}
+    if mode == "auto":
+        over.pop(name, None)
+    else:
+        over[name] = mode
+    pol["overrides"] = over
+    write(APPSEC_POLICY, json.dumps(pol, indent=2) + "\n", mode=0o600, keep_backup=False)
+    return appsec_curate(r)
+
+
 # ---------------------------------------------------------------- safety net
 
 SNAPSHOT_DIR = "/var/backups/cowsec"
@@ -1230,6 +1348,10 @@ def step_edge(c, r, ctx):
           "# Managed by CowSec: AppSec (WAF) engine for the OpenResty edge.\nappsec_config: crowdsecurity/appsec-default\n"
           "labels:\n  type: appsec\nlisten_addr: 127.0.0.1:7422\nsource: appsec\n", r=r)
     r.sh(["cscli", "collections", "install"] + APPSEC_COLLECTIONS)
+    try:
+        appsec_curate(r)  # mail WAF: mail-stack rules block, everything else watches for scanners
+    except StepError as e:
+        r.log("mail WAF not applied, CrowdSec's default AppSec config stays: %s" % e)
     bconf = CS_DIR + "/bouncers/crowdsec-openresty-bouncer.conf"
     set_kv(bconf, {"API_URL": lapi_url().rstrip("/"), "APPSEC_URL": "http://127.0.0.1:7422", "APPSEC_FAILURE_ACTION": "passthrough", "MODE": "live"}, r)
     os.chmod(bconf, 0o600)
@@ -1290,7 +1412,7 @@ def rollback_edge(c, r, ctx):
 def cert_names(dom, c, mc):
     if c["certs"]["wildcard"]:
         return [dom, "*." + dom]
-    names = [dom, "mail." + dom, "autodiscover." + dom, "autoconfig." + dom]
+    names = [dom, "mail." + dom, "autodiscover." + dom, "autoconfig." + dom, "mta-sts." + dom]
     return names
 
 
@@ -1342,7 +1464,7 @@ def deploy_certs(c, r, ctx):
         shutil.copy2(crt, os.path.join(d, "cert.pem"))
         shutil.copy2(key, os.path.join(d, "key.pem"))
         os.chmod(os.path.join(d, "key.pem"), 0o600)
-        names = [dom, "mail." + dom, "autodiscover." + dom, "autoconfig." + dom]
+        names = [dom, "mail." + dom, "autodiscover." + dom, "autoconfig." + dom, "mta-sts." + dom]
         with open(os.path.join(d, "domains"), "w") as f:
             f.write(" ".join(names))
         for n in names:
@@ -2040,6 +2162,27 @@ def mailcow_footer(domain):
         return v if isinstance(v, list) else []
     return {"html": row.get("html") or "", "plain": row.get("plain") or "", "skip_replies": str(row.get("skip_replies") or "0") == "1",
             "exclude": as_list(row.get("mbox_exclude")) + as_list(row.get("alias_domain_exclude"))}
+
+
+def mailcow_mta_sts(domain):
+    """A domain's MTA-STS policy from mailcow's database (the API can set it but not read it)."""
+    if not re.match(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", domain):
+        raise StepError("invalid domain")
+    mc = find_mailcow()
+    if not mc:
+        raise StepError("mailcow not found")
+    conf = read_kv(os.path.join(mc, "mailcow.conf"))
+    sql = ("SELECT JSON_OBJECT('id', id, 'version', version, 'mode', mode, 'mx', mx, 'max_age', max_age, 'active', active) "
+           "FROM mta_sts WHERE domain = '%s'" % domain)
+    rc, out = compose(mc, ["exec", "-T", "-e", "MYSQL_PWD=" + conf.get("DBPASS", ""), "mysql-mailcow", "mysql", "-u" + conf.get("DBUSER", "mailcow"),
+                           conf.get("DBNAME", "mailcow"), "-B", "-N", "-r", "-e", sql])
+    if rc != 0:
+        raise StepError("could not read the MTA-STS policy")
+    row = json.loads(out.strip() or "{}")
+    if not row:
+        return {"exists": False, "active": False}
+    return {"exists": True, "active": str(row.get("active")) == "1", "id": str(row.get("id") or ""), "version": row.get("version") or "STSv1",
+            "mode": row.get("mode") or "testing", "max_age": int(row.get("max_age") or 86400), "mx": [m for m in str(row.get("mx") or "").split(",") if m]}
 
 
 # ---------------------------------------------------------------- mailcow updates

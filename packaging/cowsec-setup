@@ -11,6 +11,7 @@
   cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
   cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
   cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
+  cowsec-setup appsec-curate   rebuild the mail WAF (mail-stack rules block, the rest watch for scanners)
   cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys
@@ -132,6 +133,15 @@ def restore_mailcow(src, yes):
     print(f"{G}mailcow is back on its original settings.{N}")
 
 
+def appsec_curate(if_default):
+    res = se.appsec_curate(se.Runner(echo=True), only_if_default=if_default)
+    if res.get("skipped"):
+        print("mail WAF: %s" % res["skipped"])
+    else:
+        c = res["counts"]
+        print(f"{G}mail WAF: {c['block']} rules block, {c['watch']} watch for scanners, {c['off']} off.{N}")
+
+
 def reset_wizard():
     for f in ("setup-complete", "setup-token"):
         p = os.path.join(STATE, f)
@@ -174,7 +184,8 @@ def main():
     a = sub.add_parser("access"); a.add_argument("mode", choices=["local", "lan", "wan", "tunnel"])
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
     sub.add_parser("reset-wizard"); sub.add_parser("revert-edge")
-    rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
+    rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true")
+    ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy")
     args = p.parse_args()
     need_root()
     try:
@@ -194,6 +205,8 @@ def main():
             revert_edge()
         elif args.cmd == "restore-mailcow":
             restore_mailcow(args.src, args.yes)
+        elif args.cmd == "appsec-curate":
+            appsec_curate(args.if_default)
         elif args.cmd == "migrate-legacy":
             migrate_legacy()
     except se.StepError as e:

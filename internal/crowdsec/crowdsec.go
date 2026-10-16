@@ -230,6 +230,14 @@ func (t *Target) GetOverview() (map[string]interface{}, error) {
 		overview["appsecRules"] = enabledCount
 		overview["appsecRulesTotal"] = len(rules)
 	}
+	// mail WAF split: rules blocking in the request path, and rules watching for scanners
+	if plan, err := t.gateJSON("appsec-plan"); err == nil {
+		if counts, ok := plan["counts"].(map[string]interface{}); ok {
+			overview["appsecBlock"] = counts["block"]
+			overview["appsecWatch"] = counts["watch"]
+		}
+		overview["appsecConfig"] = plan["active"]
+	}
 
 	// 7. Scenarios and Parsers
 	if scenarios, err := t.GetScenarios(); err == nil {

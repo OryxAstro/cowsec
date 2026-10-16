@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Download, LogOut, Network, Package, Palette, Scale, Server,
   Settings as SettingsIcon, Shield, ShieldAlert, Sparkles, Home, Globe, Inbox, AtSign, ShieldQuestion, Send, ScrollText,
-  BookOpen, Binoculars, ChevronRight, Dog, Gauge, Info, Lock, Route, Users,
+  Award, BookOpen, Binoculars, ChevronRight, Dog, Gauge, Info, Lock, Route, Users,
 } from 'lucide-react';
 import CowSecLogo from './CowSecLogo';
 import CrowdSecConsole, { type CsSubTabType } from './CrowdSecConsole';
@@ -11,16 +11,17 @@ import { AliasesPanel, DomainsPanel, FarmOverview, LogsPanel, MailboxesPanel, Qu
 import { CattleRoutesPanel, FarmhandsPanel, GrazingLimitsPanel, GuardDogPanel, LockedLanesPanel } from './FarmAdminPanels';
 import { AboutPanel, HelpCenter } from './HelpCenter';
 import { LookoutPanel } from './MailcowSecurity';
+import { DeliverabilityPanel } from './MailcowDeliver';
 import { THEME_PALETTES, type ThemePalette } from './themes';
 import type { Identity } from './session';
 
-type MailTab = 'farm' | 'domains' | 'mailboxes' | 'aliases' | 'quarantine' | 'queue' | 'maillogs' | 'lookout' | 'farmhands' | 'ratelimits' | 'tls' | 'routes' | 'netfilter' | 'help' | 'about';
+type MailTab = 'farm' | 'domains' | 'mailboxes' | 'aliases' | 'quarantine' | 'queue' | 'maillogs' | 'lookout' | 'ribbons' | 'farmhands' | 'ratelimits' | 'tls' | 'routes' | 'netfilter' | 'help' | 'about';
 type Tab = CsSubTabType | MailTab;
 
 const MAIL_PAGES: Record<MailTab, () => ReactNode> = {
   farm: () => <FarmOverview />, domains: () => <DomainsPanel />, mailboxes: () => <MailboxesPanel />, aliases: () => <AliasesPanel />,
   quarantine: () => <QuarantinePanel />, queue: () => <QueuePanel />, maillogs: () => <LogsPanel />,
-  lookout: () => <LookoutPanel />, farmhands: () => <FarmhandsPanel />, ratelimits: () => <GrazingLimitsPanel />, tls: () => <LockedLanesPanel />, routes: () => <CattleRoutesPanel />,
+  lookout: () => <LookoutPanel />, ribbons: () => <DeliverabilityPanel />, farmhands: () => <FarmhandsPanel />, ratelimits: () => <GrazingLimitsPanel />, tls: () => <LockedLanesPanel />, routes: () => <CattleRoutesPanel />,
   netfilter: () => <GuardDogPanel />, help: () => <HelpCenter />, about: () => <AboutPanel />,
 };
 
@@ -44,6 +45,7 @@ const NAV: [string, string, [Tab, string, ReactNode][]][] = [
     ['quarantine', 'Quarantine Pen', <ShieldQuestion key="i" className="w-4 h-4 shrink-0 text-amber-400" />],
     ['queue', 'Milk Queue (Mail queue)', <Send key="i" className="w-4 h-4 shrink-0 text-cyan-300" />],
     ['lookout', 'Lookout (Mail security)', <Binoculars key="i" className="w-4 h-4 shrink-0 text-rose-300" />],
+    ['ribbons', 'Show Ribbons (Deliverability)', <Award key="i" className="w-4 h-4 shrink-0 text-amber-300" />],
     ['maillogs', 'Farm Log (Logs)', <ScrollText key="i" className="w-4 h-4 shrink-0 text-slate-300" />],
   ]],
   ['Farm Office', 'Mail policy', [

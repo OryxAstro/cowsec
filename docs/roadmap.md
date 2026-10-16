@@ -33,7 +33,7 @@ CowSec keeps a small history of its own, so it can show trends and follow a mess
 - **DNS watch:** re-check every domain's records on a schedule, with an SPF lookup counter and DMARC policy advice, and alert when something changes.
 - **rspamd maps editor** with a pattern helper and validation.
 
-### 3c. Deliverability and onboarding
+### 3c. Deliverability and onboarding (done)
 
 - MTA-STS per domain.
 - **Deliverability scorecard:** DNS status for every domain, blocklist checks on the server IP, PTR.

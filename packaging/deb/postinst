@@ -4,6 +4,8 @@ if [ "$1" = "configure" ]; then
     install -d -m 0700 /var/lib/cowsec /etc/cowsec
     # a hand-installed CowSec's unit in /etc/systemd/system would override the package's
     /usr/sbin/cowsec-setup migrate-legacy || echo "cowsec: could not migrate the earlier hand-installed CowSec; see 'cowsec-setup migrate-legacy'" >&2
+    # mail WAF: switch CowSec's AppSec engine from CrowdSec's catch-all default (kept if CrowdSec rejects it)
+    /usr/sbin/cowsec-setup appsec-curate --if-default || echo "cowsec: mail WAF not applied; see 'cowsec-setup appsec-curate'" >&2
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable cowsec >/dev/null 2>&1 || true
     systemctl restart cowsec >/dev/null 2>&1 || true

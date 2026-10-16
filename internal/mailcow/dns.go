@@ -185,6 +185,7 @@ func (c *Client) dnsChecklist(ctx context.Context, d string) []DNSRecord {
 		add(DNSRecord{Group: "policy", Name: "_dmarc." + d, Type: "TXT (DMARC)", Expected: "v=DMARC1; p=quarantine; rua=mailto:postmaster@" + d,
 			Current: cur, State: st, Help: "Tells receivers what to do with mail that fails SPF and DKIM, and where to send reports."})
 	})
+	run(func() { c.mtaSTSRecords(ctx, d, add) })
 	// signing
 	run(func() {
 		var k struct {
@@ -215,7 +216,7 @@ func (c *Client) dnsChecklist(ctx context.Context, d string) []DNSRecord {
 	})
 	wg.Wait()
 	order := map[string]int{"server": 0, "mail": 1, "policy": 2, "signing": 3, "autoconfig": 4}
-	typeOrder := map[string]int{"A / AAAA": 0, "PTR": 1, "TLSA": 2, "CNAME": 0, "SRV": 1}
+	typeOrder := map[string]int{"A / AAAA": 0, "PTR": 1, "TLSA": 2, "CNAME": 0, "SRV": 1, "TXT (SPF)": 0, "TXT (DMARC)": 1, "TXT (MTA-STS)": 2}
 	sort.SliceStable(out, func(i, j int) bool {
 		if order[out[i].Group] != order[out[j].Group] {
 			return order[out[i].Group] < order[out[j].Group]

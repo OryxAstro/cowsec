@@ -61,6 +61,14 @@ Editing a domain adds three more tabs:
 
 <p align="center"><img src="img/mail/domains.webp" alt="Domain list with usage" width="900"></p>
 
+**Add domain** opens a wizard. It creates the domain with mailcow's defaults and a DKIM key, lists exactly the records to publish and ticks each one off as DNS picks it up (it checks every 20 seconds), then makes the postmaster mailbox with a strong password. **All options** opens the full form instead.
+
+<p align="center"><img src="img/mail/new-domain-dns.webp" alt="The new-domain wizard waiting for DNS" width="900"></p>
+
+The domain's **MTA-STS** tab publishes a policy telling other servers to always use an encrypted, verified connection to it. Start in testing, then switch to enforce. It lists the `mta-sts` and `_mta-sts` records to publish (also in the DNS checklist, checked live); CowSec's DNS-01 certificates cover `mta-sts.<domain>`.
+
+<p align="center"><img src="img/mail/mta-sts.webp" alt="MTA-STS for a domain" width="900"></p>
+
 #### DNS records
 
 The **DNS** button on each domain opens its checklist. It lists every record mailcow needs, with what DNS answers right now:
@@ -166,11 +174,21 @@ One page for keeping watch:
 
 <p align="center"><img src="img/mail/lookout.webp" alt="The Lookout page" width="900"></p>
 
+### Show Ribbons (Deliverability)
+
+Every domain gets a prize rosette, A to F, for how other mail servers will treat its mail. Each grade is built from checks: MX, SPF (strict or soft), DKIM, DMARC policy, MTA-STS (and whether its policy is actually reachable), TLS reporting, plus two for the server itself: reverse DNS, and seven blocklists. Every failing check says how to fix it.
+
+Blocklist checks run a self-test first: a list that the server's DNS resolver can't query properly (common with public or filtering resolvers) shows as "?" rather than a false alarm.
+
+<p align="center"><img src="img/mail/show-ribbons.webp" alt="Show Ribbons: deliverability scorecard" width="900"></p>
+
 ### Farm Log
 
 <p align="center"><img src="img/mail/logs.webp" alt="mailcow logs" width="900"></p>
 
 ### Farmhands (Domain admins)
+
+**Open as** signs you into mailcow as that domain admin in a new tab, with a single-use link that's valid for 30 seconds, so you can see exactly what they see.
 
 Create domain administrators, choose their domains, and switch each permission on or off: sync jobs, quarantine, log in as a user, spam lists, protocol access, relay hosts and so on. mailcow's API doesn't report permissions, so CowSec reads them from mailcow's database (read-only) and saves them through the API.
 

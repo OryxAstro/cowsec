@@ -2,9 +2,10 @@
 // policy maps, relay hosts and transports, and mailcow's own ban engine (netfilter) with
 // its coordination with CrowdSec. Same validated /api/mailcow endpoints and audit log.
 import Select from './Select';
+import { openAsDomainAdmin } from './MailcowDeliver';
 import { useEffect, useState } from 'react';
 import {
-  ArrowRight, Dog, Gauge, Lock, Pause, Play, Plus, RefreshCw, Route, Save, ShieldCheck, Trash2, Users, Workflow,
+  ExternalLink, ArrowRight, Dog, Gauge, Lock, Pause, Play, Plus, RefreshCw, Route, Save, ShieldCheck, Trash2, Users, Workflow,
 } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
 import {
@@ -112,6 +113,7 @@ export function FarmhandsPanel() {
                     <span className="text-xs text-slate-400">{granted}/{data.acl.keys.length} permissions</span>
                     <Pill ok={on(a.active)} />
                     <button onClick={() => setOpen(open === a.username ? null : a.username)} className={`${btn} text-slate-300 hover:bg-slate-800`}><ShieldCheck className="w-3.5 h-3.5" /> Permissions</button>
+                    <button onClick={() => openAsDomainAdmin(a.username, run)} disabled={!on(a.active)} className={`${btn} text-sky-300 hover:text-white hover:bg-slate-800`} title="Open mailcow signed in as this domain admin"><ExternalLink className="w-3.5 h-3.5" /> Open as</button>
                     <button onClick={() => run(() => send('PATCH', `/api/mailcow/domain-admins/${encodeURIComponent(a.username)}`, { active: !on(a.active) }), reload)} className={`${btn} text-slate-400 hover:text-white hover:bg-slate-800`}>
                       {on(a.active) ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                     </button>

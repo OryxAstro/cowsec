@@ -250,9 +250,15 @@ Active bans with country, network and scenario. Search by IP, country or scenari
 
 <p align="center"><img src="img/console/decisions.webp" alt="Decisions" width="900"></p>
 
-### Electric Fence (AppSec WAF)
+### Electric Fence (Mail WAF)
 
-Every AppSec rule and CVE virtual patch, with filters and one-click toggles.
+CrowdSec ships around 200 AppSec rules, most for software a mail server doesn't run (WordPress plugins, firewalls, routers, Jira…). CowSec gives each rule one of three modes:
+
+- **Block**: checked before the request reaches mailcow, and refused if it matches. This covers the rules for the mail stack (mailcow's PHP admin, webmail such as Roundcube or SOGo, Zimbra, Exchange, nginx) and probes that never belong on a mail server (`.env`, `.git`, debug consoles).
+- **Watch**: checked after the reply has gone, so it never slows a request down or blocks a real visitor. Anything that trips a watch rule is probing for exploits, so CowSec bans it. These are the rules for software you don't run.
+- **Off**: not installed.
+
+New rules from hub updates start in Watch; new patches for mail products go straight to Block. Change any rule's mode on the page and your choice is kept across updates.
 
 <p align="center"><img src="img/console/appsec-waf.webp" alt="AppSec WAF rules" width="900"></p>
 

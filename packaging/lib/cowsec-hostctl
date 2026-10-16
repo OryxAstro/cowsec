@@ -409,7 +409,7 @@ JOBS = {
         "/usr/local/openresty/bin/openresty -t -q && systemctl reload openresty; sleep 3; "
         "for s in crowdsec crowdsec-firewall-bouncer openresty; do echo \"$s: $(systemctl is-active $s)\"; systemctl is-active -q $s; done; "
         "cscli lapi status"),
-    "hub-upgrade": "/usr/bin/cscli hub update && /usr/bin/cscli hub upgrade && systemctl reload crowdsec",
+    "hub-upgrade": "/usr/bin/cscli hub update && /usr/bin/cscli hub upgrade && systemctl reload crowdsec && /usr/sbin/cowsec-setup appsec-curate --if-default",
     "setup-install": None,  # runs setup_engine.install() (see job_exec)
     "upgrade-crowdsec": None,  # staged: setup_engine.crowdsec_upgrade
     "upgrade-cowsec": None,  # staged: setup_engine.cowsec_self_update
@@ -630,6 +630,16 @@ def main():
             print(json.dumps(se.mailcow_da_acl())); return
         if verb == "mailcow-footer" and len(args) == 1:
             print(json.dumps(se.mailcow_footer(args[0]))); return
+        if verb == "mailcow-mta-sts" and len(args) == 1:
+            print(json.dumps(se.mailcow_mta_sts(args[0]))); return
+        if verb == "appsec-plan" and not args:
+            print(json.dumps(se.appsec_plan())); return
+        if verb == "appsec-mode" and len(args) == 2:
+            log("%s appsec-mode %s %s" % (peer, args[0], args[1]))
+            print(json.dumps(se.appsec_set_mode(args[0], args[1], se.Runner(echo=False)))); return
+        if verb == "appsec-curate" and not args:
+            log("%s appsec-curate" % peer)
+            print(json.dumps(se.appsec_curate(se.Runner(echo=False)))); return
         if verb == "netfilter-state" and not args:
             print(json.dumps(se.netfilter_state())); return
         if verb == "netfilter-coordinate" and len(args) == 2 and args[1] in ("0", "1"):

@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  AlertTriangle, AtSign, Ban, CheckCircle2, CircleDashed, Copy, Download, Eye, EyeOff, FileSignature, Gauge, Globe, KeyRound, Mail, RefreshCw, Server, Settings2, Shield, Signature, Sparkles, Ticket, X, XCircle,
+  AlertTriangle, AtSign, Ban, CheckCircle2, CircleDashed, Copy, Download, Eye, EyeOff, FileSignature, Gauge, Globe, KeyRound, Lock, Mail, RefreshCw, Server, Settings2, Shield, Signature, Sparkles, Ticket, X, XCircle,
 } from 'lucide-react';
 import { AliasDomainsTab, AppPasswordsTab, DisposableTab, DkimCard, FooterTab, SenderListsTab, SpamScoreTab, Tabs } from './MailcowExtras';
 import { SecurityTab } from './MailcowSecurity';
+import { MtaStsTab } from './MailcowDeliver';
 import Select from './Select';
 import { btn, input, send, useApi } from './MailcowPanels';
 
@@ -288,7 +289,7 @@ export function DomainModal({ domain, onClose, onSaved, run }: { domain?: Domain
     backupmx: yes(domain?.backupmx), relay_all_recipients: yes(domain?.relay_all_recipients), relay_unknown_only: yes(domain?.relay_unknown_only),
     gal: domain ? yes(domain.gal) : true, tags: domain?.tags || [], rl_value: 0, rl_frame: 'h',
   });
-  const [tab, setTab] = useState<'settings' | 'footer' | 'aliases' | 'senders'>('settings');
+  const [tab, setTab] = useState<'settings' | 'footer' | 'aliases' | 'senders' | 'mtasts'>('settings');
   const set = (p: Partial<typeof f>) => setF({ ...f, ...p });
   const body = { description: f.description, active: f.active, mailboxes: f.mailboxes, aliases: f.aliases, defquota: f.defquota, maxquota: f.maxquota, quota: f.quota,
     backupmx: f.backupmx, relay_all_recipients: f.relay_all_recipients, relay_unknown_only: f.relay_unknown_only, gal: f.gal, tags: f.tags };
@@ -299,11 +300,12 @@ export function DomainModal({ domain, onClose, onSaved, run }: { domain?: Domain
     <Labelled label={label} hint={hint}><input type="number" min={0} className={input} value={f[k]} onChange={(e) => set({ [k]: Math.max(0, +e.target.value) } as Partial<typeof f>)} /></Labelled>
   );
   return (
-    <Modal title={editing ? `Edit ${f.domain}` : 'New paddock (domain)'} sub={editing ? 'Limits, footer, alias domains and sender lists' : 'Limits, quotas and relay options'} icon={<Globe className="w-5 h-5" />} onClose={onClose}
+    <Modal title={editing ? `Edit ${f.domain}` : 'New paddock (domain)'} sub={editing ? 'Limits, footer, alias domains, sender lists and MTA-STS' : 'Limits, quotas and relay options'} icon={<Globe className="w-5 h-5" />} onClose={onClose}
       footer={tab === 'settings' ? <><button onClick={onClose} className={`${btn} text-slate-400 hover:text-white`}>Cancel</button>
         <button disabled={!f.domain} onClick={save} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2`}>{editing ? 'Save changes' : 'Create domain'}</button></> : undefined}>
       {editing && <Tabs value={tab} onChange={setTab} tabs={[['settings', 'Settings', <Settings2 key="s" className="w-3.5 h-3.5" />], ['footer', 'Footer', <FileSignature key="f" className="w-3.5 h-3.5" />],
-        ['aliases', 'Alias domains', <AtSign key="a" className="w-3.5 h-3.5" />], ['senders', 'Allow / block senders', <Ban key="b" className="w-3.5 h-3.5" />]]} />}
+        ['aliases', 'Alias domains', <AtSign key="a" className="w-3.5 h-3.5" />], ['senders', 'Allow / block senders', <Ban key="b" className="w-3.5 h-3.5" />], ['mtasts', 'MTA-STS', <Lock key="m" className="w-3.5 h-3.5" />]]} />}
+      {editing && tab === 'mtasts' && <MtaStsTab domain={f.domain} run={run} />}
       {editing && tab === 'footer' && <FooterTab domain={f.domain} run={run} />}
       {editing && tab === 'aliases' && <AliasDomainsTab domain={f.domain} run={run} />}
       {editing && tab === 'senders' && <SenderListsTab scope="domain" target={f.domain} run={run} />}

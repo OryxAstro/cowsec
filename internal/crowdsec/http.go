@@ -296,6 +296,49 @@ func Routes(cr chi.Router, t *Target) {
 		})
 	})
 
+	// mail WAF: each rule's mode (block in the request path, watch for scanners, off)
+	cr.Get("/appsec/plan", func(w http.ResponseWriter, r *http.Request) {
+		out, err := t.gate("appsec-plan")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+	})
+	cr.Post("/appsec/mode", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Rule string `json:"rule"`
+			Mode string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Mode != "block" && req.Mode != "watch" && req.Mode != "auto") {
+			http.Error(w, "choose block, watch or auto", http.StatusBadRequest)
+			return
+		}
+		if err := validHubItem("appsec-rules", req.Rule); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		t.invalidate()
+		out, err := t.gate("appsec-mode", req.Rule, req.Mode)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+	})
+	cr.Post("/appsec/curate", func(w http.ResponseWriter, r *http.Request) {
+		t.invalidate()
+		out, err := t.gate("appsec-curate")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
+	})
+
 	cr.Post("/appsec/toggle", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Rule    string `json:"rule"`

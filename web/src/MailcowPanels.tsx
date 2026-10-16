@@ -10,6 +10,7 @@ import { Card, Tile } from './HostPanel';
 import { AliasModal, DnsModal, DomainModal, MailboxModal } from './MailcowForms';
 import { QuarantinePreview } from './MailcowExtras';
 import { SecurityModal } from './MailcowSecurity';
+import { NewDomainWizard } from './MailcowDeliver';
 import Select from './Select';
 
 // ---------------------------------------------------------------- shared
@@ -216,15 +217,19 @@ interface Domain {
 export function DomainsPanel() {
   const { data, error, notConfigured, reload } = useApi<Domain[]>('/api/mailcow/domains');
   const { toast, run } = useToast();
-  const [modal, setModal] = useState<{ kind: 'add' } | { kind: 'edit'; d: Domain } | { kind: 'dns'; d: string } | null>(null);
+  const [modal, setModal] = useState<{ kind: 'add' } | { kind: 'wizard' } | { kind: 'edit'; d: Domain } | { kind: 'dns'; d: string } | null>(null);
   if (notConfigured) return <NotConfigured />;
   return (
     <div className="space-y-6">
       {toast}
       {modal?.kind === 'add' && <DomainModal onClose={() => setModal(null)} onSaved={reload} run={run} />}
+      {modal?.kind === 'wizard' && <NewDomainWizard onClose={() => setModal(null)} onDone={reload} />}
       {modal?.kind === 'edit' && <DomainModal domain={modal.d} onClose={() => setModal(null)} onSaved={reload} run={run} />}
       {modal?.kind === 'dns' && <DnsModal domain={modal.d} domains={(data || []).map((d) => d.domain_name)} onClose={() => setModal(null)} run={run} />}
-      <Header title="Paddocks (Domains)" sub="Mail domains on this server, their limits and their DNS" action={<button onClick={() => setModal({ kind: 'add' })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add domain</button>} />
+      <Header title="Paddocks (Domains)" sub="Mail domains on this server, their limits and their DNS" action={<div className="flex gap-2">
+        <button onClick={() => setModal({ kind: 'add' })} className={`${btn} border border-slate-700 text-slate-300 hover:bg-slate-800`}>All options</button>
+        <button onClick={() => setModal({ kind: 'wizard' })} className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}><Plus className="w-3.5 h-3.5" /> Add domain</button>
+      </div>} />
       {error && <Problem text={error} />}
       {!data ? <Loading text="Counting paddocks…" /> : (
         <Card title={`${data.length} domain${data.length === 1 ? '' : 's'}`} icon={<Globe className="w-4 h-4 text-sky-400" />}>
