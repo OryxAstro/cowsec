@@ -20,7 +20,7 @@ Security problems go through private reporting instead; see [SECURITY.md](SECURI
    make test     # Go vet/tests and Python checks
    make deb      # builds build/cowsec_<version>_amd64.deb
    ```
-4. Anything that changes a server (CrowdSec, the firewall, OpenResty, mailcow) needs testing on a real install, or on a VM you don't mind breaking.
+4. Anything that changes a server (CrowdSec, the firewall, OpenResty, mailcow) needs testing on a real install, or on a VM you don't mind breaking. The browser tests in [`test/e2e`](test/e2e/README.md) drive the setup wizard, tour every console page and run API regression checks against such a VM.
 
 ## Contributor licence agreement
 

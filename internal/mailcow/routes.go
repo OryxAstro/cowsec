@@ -162,6 +162,7 @@ func mount(r chi.Router, c *Client) {
 		if _, ok := body["active"]; !ok {
 			body["active"] = "1"
 		}
+		forgetScores()
 		change(w, "add/domain", body)
 	})
 	r.Patch("/domains/{domain}", func(w http.ResponseWriter, req *http.Request) {
@@ -200,6 +201,7 @@ func mount(r chi.Router, c *Client) {
 			fail(w, 400, fmt.Errorf("invalid domain"))
 			return
 		}
+		forgetScores()
 		change(w, "delete/domain", []string{d})
 	})
 

@@ -201,6 +201,7 @@ Can't spare a coin? These are free and make her moo with joy:
 ```bash
 make deb        # Go 1.23+, Node 20+, dpkg-deb → build/cowsec_<version>_amd64.deb
 make test       # Go vet/tests and Python checks
+make e2e COWSEC_E2E_CONFIG=config.json   # browser tests against a test server, see test/e2e
 python3 docs/assets/src/generate.py   # regenerate the documentation artwork
 ```
 

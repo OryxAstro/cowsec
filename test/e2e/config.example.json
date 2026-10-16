@@ -1,0 +1,23 @@
+{
+  "console": {
+    "url": "https://cowsec.example.com",
+    "ip": "192.0.2.10",
+    "user": "admin",
+    "password": "change-me",
+    "totpSecret": ""
+  },
+  "setup": {
+    "url": "https://192.0.2.10:8443/",
+    "token": "the token printed by cowsec-setup",
+    "mode": "existing",
+    "mailHost": "mail.example.com",
+    "consoleHost": "cowsec.example.com",
+    "email": "you@example.com",
+    "staging": true,
+    "dns": { "provider": "cloudflare", "env": { "CF_DNS_API_TOKEN": "your-token" } }
+  },
+  "sanitize": {
+    "domains": ["example.com"],
+    "ips": ["192.0.2.10"]
+  }
+}

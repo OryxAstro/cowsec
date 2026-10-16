@@ -14,7 +14,7 @@ DEB_VERSION := $(shell echo $(VERSION) | sed 's/-/~/g')
 BUILD := build
 PKG := $(BUILD)/pkg
 
-.PHONY: all web bin deb test clean
+.PHONY: all web bin deb test e2e clean
 
 all: deb
 
@@ -30,6 +30,13 @@ test:
 	go test ./...
 	python3 -m py_compile packaging/lib/setup_engine.py packaging/lib/cowsec-hostctl packaging/cowsec-setup
 	python3 -m unittest discover -s packaging/tests
+
+# browser tests against a test server: make e2e COWSEC_E2E_CONFIG=path/to/config.json (see test/e2e/README.md)
+e2e:
+	@test -n "$(COWSEC_E2E_CONFIG)" || { echo "set COWSEC_E2E_CONFIG to a config file (see test/e2e/README.md)"; exit 64; }
+	cd test/e2e && npm ci --no-audit --no-fund && npx playwright install chromium
+	cd test/e2e && COWSEC_E2E_CONFIG=$(abspath $(COWSEC_E2E_CONFIG)) node checks.js out/checks
+	cd test/e2e && COWSEC_E2E_CONFIG=$(abspath $(COWSEC_E2E_CONFIG)) node tour.js out/tour
 
 deb: web bin test
 	rm -rf $(PKG)

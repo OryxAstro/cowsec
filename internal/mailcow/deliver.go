@@ -329,6 +329,13 @@ var (
 	scoreTime  time.Time
 )
 
+// forgetScores drops the cached scorecard so an added or removed domain shows up straight away.
+func forgetScores() {
+	scoreMu.Lock()
+	scoreCache = nil
+	scoreMu.Unlock()
+}
+
 func mountDeliver(r chi.Router, c *Client, o Options) {
 	change := func(w http.ResponseWriter, path string, body interface{}) {
 		msgs, err := c.Change(path, body)

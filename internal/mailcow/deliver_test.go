@@ -3,6 +3,7 @@ package mailcow
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func goodRecs() []DNSRecord {
@@ -94,7 +95,7 @@ func TestListedAnswer(t *testing.T) {
 		{[]string{"127.0.0.10", "127.0.0.4"}, true},
 		{[]string{"127.255.255.254"}, false}, // Spamhaus: query refused
 		{[]string{"0.0.0.0"}, false},         // a filtering resolver's "blocked" answer
-		{[]string{"192.168.40.1"}, false},    // a resolver answering with itself
+		{[]string{"192.168.1.1"}, false},    // a resolver answering with itself
 		{nil, false},
 	} {
 		if got := listedAnswer(c.addrs); got != c.want {
@@ -109,5 +110,15 @@ func TestDKIMP(t *testing.T) {
 	}
 	if got := dkimP("v=DKIM1; k=rsa"); got != "" {
 		t.Errorf("no p= should give empty, got %q", got)
+	}
+}
+
+func TestForgetScores(t *testing.T) {
+	scoreMu.Lock()
+	scoreCache, scoreTime = map[string]interface{}{"domains": []string{"gone.example"}}, time.Now()
+	scoreMu.Unlock()
+	forgetScores()
+	if scoreCache != nil {
+		t.Error("the scorecard cache should be empty after a domain is added or removed")
 	}
 }
