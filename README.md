@@ -28,6 +28,7 @@
   <a href="https://github.com/OryxAstro/cowsec/stargazers"><img src="docs/assets/buttons/star.svg" alt="Star the repo" height="56"></a>
   <!-- once GitHub Sponsors is approved: <a href="https://github.com/sponsors/OryxAstro"><img src="docs/assets/buttons/sponsor.svg" alt="Sponsor the herd on GitHub Sponsors" height="56"></a> -->
 </p>
+<p align="center"><a href="https://github.com/OryxAstro"><img alt="Follow the herd" src="https://img.shields.io/github/followers/OryxAstro?label=Follow%20the%20herd&style=social"></a></p>
 <p align="center"><sub>🐄 Bessie guards your mail around the clock and has never once asked for a pay rise. She runs on hay and coffee.</sub></p>
 
 ---
