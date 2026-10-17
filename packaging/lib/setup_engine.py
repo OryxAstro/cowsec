@@ -1,5 +1,5 @@
 """CowSec setup engine: pre-flight checks and the install steps for CrowdSec, the
-firewall bouncer, the OpenResty edge with AppSec, certificates and console access on a
+firewall bouncer, the web edge (OpenResty, or Debian's nginx on Debian 13) with AppSec, certificates and console access on a
 mailcow-dockerized host.
 
 Used by the setup wizard (through cowsec-hostctl jobs) and by the `cowsec-setup` CLI.
@@ -46,6 +46,24 @@ RESTY_HTTP_VERSION = "0.17.1"
 RESTY_HTTP_URL = "https://github.com/ledgetech/lua-resty-http/archive/refs/tags/v%s.tar.gz" % RESTY_HTTP_VERSION
 RESTY_HTTP_SHA256 = "f52a0538b20a2d45025f318c18a138b78f6f88f07713dd0ed502183cb3d16f17"
 RESTY_DIR = "/usr/local/openresty/site/lualib/resty"
+
+# The web edge in front of mailcow: OpenResty wherever its packages can be installed. On Debian 13,
+# whose apt rejects OpenResty's SHA-1-bound signing key (see openresty_blocked), the edge is Debian's
+# own nginx with its Lua module and CrowdSec's nginx bouncer: the same bouncer library and AppSec WAF,
+# every package signed by Debian or CrowdSec. use_edge() points the globals below at one of them.
+EDGES = {
+    "openresty": {"name": "OpenResty", "service": "openresty", "conf": OPENRESTY + "/nginx/conf", "bin": OPENRESTY + "/bin/openresty",
+                  "logs": "/var/log/openresty", "bouncer": "crowdsec-openresty-bouncer", "resty": RESTY_DIR},
+    "nginx": {"name": "nginx", "service": "nginx", "conf": "/etc/nginx", "bin": "/usr/sbin/nginx",
+              "logs": "/var/log/nginx", "bouncer": "crowdsec-nginx-bouncer", "resty": "/usr/local/share/lua/5.1/resty"},
+}
+EDGE_FILE = ETC_DIR + "/edge"   # which flavour this server's edge uses, written when the edge is installed
+EDGE_KIND = "openresty"
+EDGE_SVC = "openresty"
+EDGE_BIN = OPENRESTY + "/bin/openresty"
+EDGE_LOGS = "/var/log/openresty"
+EDGE_BOUNCER = "crowdsec-openresty-bouncer"
+EDGE_BOUNCER_CONF = CS_DIR + "/bouncers/crowdsec-openresty-bouncer.conf"
 
 # mailcow's web ports move here when the OpenResty edge takes over 80/443, bound to 127.0.0.1 as
 # mailcow's reverse-proxy guide says (docs.mailcow.email/post_installation/reverse-proxy/r_p/). Its
@@ -443,8 +461,8 @@ def restore_mailcow(r, path=None):
             cur = os.path.join(mc, rel)
             if os.path.isfile(cur):
                 shutil.copy2(cur, cur + ".before-restore-" + time.strftime("%Y%m%d%H%M%S"))
-        r.log("stopping the OpenResty edge so mailcow's web server can take 80/443 again")
-        r.sh(["systemctl", "disable", "--now", "openresty"], check=False)
+        r.log("stopping the edge so mailcow's web server can take 80/443 again")
+        r.sh(["systemctl", "disable", "--now", EDGE_SVC], check=False)
         netfilter_handback(r)
         stop_cowsec_timers(r)  # or the next renewal would put CowSec's certificates back
         ssl = os.path.join(mc, "data/assets/ssl")
@@ -628,7 +646,7 @@ def uninstall(r):
         if "127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP in txt:
             write(f, txt.replace("127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP, "127.0.0.1:%d" % EDGE_MAILCOW_HTTP), r=r)
             r.log("edge: %s now uses mailcow's port %d (8081 is reserved by mailcow)" % (f, EDGE_MAILCOW_HTTP))
-    # the edge: keep OpenResty only if mailcow still expects a proxy and one was put back
+    # the edge: keep it only if mailcow still expects a proxy and one was put back
     proxied = conf.get("HTTPS_BIND", "") in ("127.0.0.1", "::1", "localhost")
     for f in glob.glob(NGX + "/sites/cowsec-*.conf") + [NGX + "/cowsec_mailcow_proxy.conf"]:
         if os.path.exists(f):
@@ -637,22 +655,22 @@ def uninstall(r):
     baks = sorted(glob.glob(NGX + "/nginx.conf.cowsec-bak-*"))
     if baks:
         shutil.copy2(baks[0], NGX + "/nginx.conf")
-        r.log("edge: put back OpenResty's nginx.conf from before CowSec")
+        r.log("edge: put back %s's nginx.conf from before CowSec" % EDGES[EDGE_KIND]["name"])
     keep_edge = False
     if mc and proxied and any(x.startswith(NGX + "/sites/") for x in adopted):
-        keep_edge = run([OPENRESTY + "/bin/openresty", "-t", "-q"])[0] == 0
+        keep_edge = run([EDGE_BIN, "-t", "-q"])[0] == 0
         if not keep_edge:
             r.log("edge: your earlier OpenResty setup doesn't pass its config test; mailcow takes 80/443 itself instead")
     if mc and proxied and not keep_edge:
         set_kv(os.path.join(mc, "mailcow.conf"), {k: MAILCOW_DEFAULTS[k] for k in ("HTTP_PORT", "HTTP_BIND", "HTTPS_PORT", "HTTPS_BIND")}, r)
         r.log("mailcow.conf: web server back on 80/443 (nothing else in front of it now)")
     if keep_edge:
-        r.sh(["systemctl", "restart", "openresty"], check=False)
+        r.sh(["systemctl", "restart", EDGE_SVC], check=False)
         r.log("edge: your earlier OpenResty setup serves mailcow again")
         if run(["systemctl", "cat", "certbot.timer"])[0] == 0:
             r.sh(["certbot", "renew", "--no-random-sleep-on-renew"], check=False)  # it was paused while CowSec renewed
     else:
-        r.sh(["systemctl", "disable", "--now", "openresty"], check=False, quiet=True)
+        r.sh(["systemctl", "disable", "--now", EDGE_SVC], check=False, quiet=True)
     # CrowdSec: CowSec's own pieces go, CrowdSec stays
     removed = {}
     own_appsec = keep_edge and not any(x.startswith(CS_DIR + "/acquis.d/") for x in adopted)
@@ -998,7 +1016,7 @@ def replaced_acquisition(doc):
     logs, or an AppSec engine (only one can listen on its port)."""
     live = "\n".join(l for l in doc.split("\n") if not l.lstrip().startswith("#"))
     return bool(re.search(r"^\s*-\s*\S*(postfix|dovecot|nginx)-mailcow\S*\s*$", live, re.M)
-                or "/var/log/openresty/" in live or re.search(r"^\s*source:\s*appsec\b", live, re.M))
+                or "/var/log/openresty/" in live or EDGE_LOGS + "/" in live or re.search(r"^\s*source:\s*appsec\b", live, re.M))
 
 
 def detect_existing():
@@ -1196,19 +1214,21 @@ def preflight():
         m = re.search(r"[:\]](25|80|110|143|443|465|587|993|995|4190|8081|8180|8443|8090|9443|7422|8080)\s.*users:\(\(\"([^\"]+)\",pid=(\d+)", line)
         if m:
             name = m.group(2)
-            try:  # OpenResty's processes are called "nginx"; tell them apart by executable
-                if "/openresty/" in os.readlink("/proc/%s/exe" % m.group(3)):
-                    name = "openresty"
+            try:  # the edge's processes are all called "nginx"; tell CowSec's edge apart by executable
+                exe = os.readlink("/proc/%s/exe" % m.group(3))
+                if "/openresty/" in exe or (EDGE_KIND == "nginx" and exe == EDGE_BIN and edge_installed()):
+                    name = "edge"
             except OSError:
                 pass
             owners.setdefault(m.group(1), set()).add(name)
     web = set().union(*[owners.get(p, set()) for p in ("80", "443")])
     rc_ng, _ = run(["systemctl", "is-active", "--quiet", "nginx"])
-    others = web - {"docker-proxy", "openresty"}
-    if rc_ng == 0 or others:
+    host_nginx = rc_ng == 0 and not (EDGE_KIND == "nginx" and edge_installed())
+    others = web - {"docker-proxy", "edge"}
+    if host_nginx or others:
         add("web-ports", "Web ports 80/443 available", "warn", "used by %s on the host; the edge needs 80/443" % ", ".join(sorted(others) or ["nginx"]))
-    elif "openresty" in web:
-        add("web-ports", "Web ports 80/443 available", "ok", "already served by the OpenResty edge")
+    elif "edge" in web:
+        add("web-ports", "Web ports 80/443 available", "ok", "already served by CowSec's edge")
     else:
         add("web-ports", "Web ports 80/443 available", "ok", "served by mailcow now; the edge takes them over and moves mailcow to localhost" if "docker-proxy" in web else "free")
     if not mc["found"]:
@@ -1234,14 +1254,19 @@ def preflight():
     st = os.statvfs("/var")
     free_gb = st.f_bavail * st.f_frsize / 1e9
     add("disk", "Free disk space in /var", "ok" if free_gb > 2 else "warn", "%.1f GB" % free_gb)
-    for host in ("packagecloud.io", "openresty.org", "github.com"):
+    for host in ("packagecloud.io", "github.com") + (("openresty.org",) if EDGE_KIND == "openresty" else ()):
         try:
             socket.create_connection((host, 443), timeout=5).close()
             add("net-" + host, "Reach " + host, "ok")
         except OSError as e:
             add("net-" + host, "Reach " + host, "fail", str(e))
-    if openresty_blocked():
-        add("openresty-key", "OpenResty packages can be verified", "warn", OPENRESTY_BLOCKED_MSG)
+    if EDGE_KIND == "nginx":
+        add("edge-nginx", "Web edge", "info", EDGE_NGINX_MSG)
+        theirs = [f for f in glob.glob("/etc/nginx/sites-enabled/*") + glob.glob("/etc/nginx/conf.d/*.conf")
+                  if os.path.basename(f) not in ("default", "crowdsec_nginx.conf", "cloudflare_realip.conf")]
+        if theirs and not edge_installed():
+            add("edge-nginx-sites", "nginx on this server", "warn", "nginx already serves other sites here (%s). The edge replaces nginx's main "
+                "config (the original is kept), so those sites would stop; turn the edge off or move them first." % ", ".join(sorted(theirs)[:4]))
     existing = detect_existing()
     labels = {"legacyCowsec": "Earlier hand-installed CowSec (already migrated by the package)", "certbot": "Existing certificates (%s)",
               "edgeSites": "Existing OpenResty sites (will be replaced, originals kept)", "cloudflareRealIP": "Existing Cloudflare real-IP setup",
@@ -1352,7 +1377,7 @@ def validate_config(c):
         raise StepError("certs.mode must be mailcow, dns01 or existing")
     if certs["mode"] == "dns01":
         if not out["components"]["edge"]:
-            raise StepError("DNS-01 certificates are deployed through the OpenResty edge; enable it")
+            raise StepError("DNS-01 certificates are deployed through the edge; enable it")
         prov = certs.get("provider", "")
         if not re.fullmatch(r"[a-z0-9-]+", prov):
             raise StepError("choose a DNS provider")
@@ -1383,7 +1408,7 @@ def validate_config(c):
     out["access"] = {"mode": mode}
     if mode in ("lan", "wan"):
         if not out["components"]["edge"]:
-            raise StepError("LAN and internet access are served by the OpenResty edge; enable it")
+            raise StepError("LAN and internet access are served by the edge; enable it")
         host = (acc.get("hostname") or "").lower()
         if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", host):
             raise StepError("enter the hostname for the console, e.g. cowsec.example.com")
@@ -1455,7 +1480,7 @@ def mailcow_acquis(c, mc):
     docs = ["# Managed by CowSec: mailcow logs (read through the Docker API).",
             "source: docker\ncontainer_name:\n" + "".join("  - %s\n" % n for n in mail) + "labels:\n  type: syslog\n"]
     if c["components"]["edge"]:
-        docs.append("source: file\nfilenames:\n  - /var/log/openresty/access.log\n  - /var/log/openresty/error.log\nlabels:\n  type: nginx\n")
+        docs.append("source: file\nfilenames:\n  - %s/access.log\n  - %s/error.log\nlabels:\n  type: nginx\n" % (EDGE_LOGS, EDGE_LOGS))
     elif "nginx-mailcow" in names:
         docs.append("source: docker\ncontainer_name:\n  - %s\nlabels:\n  type: nginx\n" % names["nginx-mailcow"]["name"])
     return docs[0] + "\n" + "---\n".join(docs[1:])
@@ -1510,23 +1535,41 @@ def step_firewall(c, r, ctx):
     r.log("mail ports protected (%s)" % how if ok else "warning: %s rule not found yet" % how)
 
 
-# --- OpenResty edge
+# --- the web edge (OpenResty, or Debian's nginx on Debian 13)
 
-NGINX_CONF = """# Managed by CowSec: OpenResty edge in front of mailcow (CrowdSec bouncer + AppSec WAF).
-worker_processes auto;
+NGINX_CONF = """# Managed by CowSec: {name} edge in front of mailcow (CrowdSec bouncer + AppSec WAF).
+{head}worker_processes auto;
 events { worker_connections 2048; }
 http {
     include       mime.types;
     default_type  application/octet-stream;
     sendfile      on;
     server_tokens off;
-    access_log /var/log/openresty/access.log combined;
-    error_log  /var/log/openresty/error.log warn;
+    access_log {logs}/access.log combined;
+    error_log  {logs}/error.log warn;
     map $http_upgrade $connection_upgrade { default upgrade; "" close; }
     include conf.d/*.conf;
     include sites/*.conf;
 }
 """
+
+
+def edge_nginx_conf():
+    # Debian's nginx loads the Lua module from modules-enabled and its unit expects /run/nginx.pid
+    head = "user www-data;\npid /run/nginx.pid;\ninclude /etc/nginx/modules-enabled/*.conf;\n" if EDGE_KIND == "nginx" else ""
+    return NGINX_CONF.replace("{name}", EDGES[EDGE_KIND]["name"]).replace("{head}", head).replace("{logs}", EDGE_LOGS)
+
+
+def edge_installed():
+    return os.path.exists(NGX + "/sites/cowsec-mailcow.conf")
+
+
+def edge_test_reload(r, check=True):
+    """Tests the edge's configuration, then reloads it."""
+    rc = r.sh([EDGE_BIN, "-t", "-q"], check=check)[0]
+    if rc == 0:
+        r.sh(["systemctl", "reload", EDGE_SVC], check=check)
+    return rc == 0
 
 PROXY_CONF = """# Managed by CowSec: proxy to mailcow's nginx (bound to localhost).
 proxy_pass https://127.0.0.1:{https};
@@ -1581,7 +1624,7 @@ def fix_mailcow_http_port(r):
     mc = find_mailcow()
     site = NGX + "/sites/cowsec-mailcow.conf"
     if not mc or not os.path.exists(site):
-        return {"changed": False, "reason": "the OpenResty edge isn't in front of mailcow"}
+        return {"changed": False, "reason": "the edge isn't in front of mailcow"}
     conf_path = os.path.join(mc, "mailcow.conf")
     conf = read_kv(conf_path)
     if conf.get("HTTP_PORT") != str(OLD_EDGE_MAILCOW_HTTP) or conf.get("HTTP_BIND") != "127.0.0.1":
@@ -1593,8 +1636,8 @@ def fix_mailcow_http_port(r):
     try:
         set_kv(conf_path, {"HTTP_PORT": str(EDGE_MAILCOW_HTTP)}, r)
         write(site, old_site.replace("127.0.0.1:%d" % OLD_EDGE_MAILCOW_HTTP, "127.0.0.1:%d" % EDGE_MAILCOW_HTTP), r=r)
-        if r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"], check=False)[0] != 0:
-            raise StepError("OpenResty configuration test failed")
+        if r.sh([EDGE_BIN, "-t", "-q"], check=False)[0] != 0:
+            raise StepError("the edge's configuration test failed")
         compose(mc, ["up", "-d", "--no-deps", "nginx-mailcow"], r)
         for _ in range(60):
             if http_status("127.0.0.1", EDGE_MAILCOW_HTTP) is not None:
@@ -1602,13 +1645,13 @@ def fix_mailcow_http_port(r):
             time.sleep(1)
         else:
             raise StepError("mailcow's web server didn't come back on port %d" % EDGE_MAILCOW_HTTP)
-        r.sh(["systemctl", "reload", "openresty"])
+        r.sh(["systemctl", "reload", EDGE_SVC])
     except Exception as e:
         r.log("putting the old port back: %s" % e)
         write(conf_path, old_conf, r=r, keep_backup=False)
         write(site, old_site, r=r, keep_backup=False)
         compose(mc, ["up", "-d", "--no-deps", "nginx-mailcow"], r, check=False)
-        r.sh(["systemctl", "reload", "openresty"], check=False)
+        r.sh(["systemctl", "reload", EDGE_SVC], check=False)
         raise
     rc, out = compose(mc, ["exec", "-T", "postfix-mailcow", "curl", "-s", "http://nginx:8081/forwardinghosts.php?host=127.0.0.1"], check=False)
     ok = rc == 0 and "<html" not in out.lower()
@@ -1620,7 +1663,7 @@ def edge_sites(c, ctx):
     v6 = ctx["ipv6"]
     mc = ctx["mailcow"]
     cert, key = default_cert(c, ctx)
-    out = ["# Managed by CowSec: mailcow behind the OpenResty edge.\n",
+    out = ["# Managed by CowSec: mailcow behind the edge.\n",
            "server {\n" + listen(80, False, True, v6) + "    server_name _;\n"
            "    # mailcow's own Let's Encrypt (HTTP-01) keeps working through the edge\n"
            "    location ^~ /.well-known/acme-challenge/ { proxy_pass http://127.0.0.1:%d; proxy_set_header Host $host; }\n"
@@ -1644,10 +1687,11 @@ def ensure_resty_http(r):
     if os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
         r.log("lua-resty-http present")
         return
-    rc, out = r.sh(["opm", "get", "ledgetech/lua-resty-http=" + RESTY_HTTP_VERSION], check=False)
-    if rc == 0 and os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
-        return
-    r.log("opm unavailable; installing lua-resty-http %s from GitHub (checksum pinned)" % RESTY_HTTP_VERSION)
+    if shutil.which("opm"):
+        rc, out = r.sh(["opm", "get", "ledgetech/lua-resty-http=" + RESTY_HTTP_VERSION], check=False)
+        if rc == 0 and os.path.exists(os.path.join(RESTY_DIR, "http.lua")):
+            return
+    r.log("installing lua-resty-http %s from GitHub (checksum pinned)" % RESTY_HTTP_VERSION)
     with tempfile.TemporaryDirectory() as td:
         tgz = os.path.join(td, "resty-http.tgz")
         download(RESTY_HTTP_URL, tgz, RESTY_HTTP_SHA256)
@@ -1665,86 +1709,115 @@ def openresty_blocked():
     """Debian 13's apt verifies signatures with sqv, which has rejected SHA-1-bound keys since
     2026-02-01. OpenResty's repository key is still SHA-1-bound (openresty/openresty#1072), so
     apt refuses the repository. Weakening apt's policy for every repository isn't acceptable,
-    so CowSec leaves the edge out there until OpenResty rotates its key."""
+    so the edge there is Debian's own nginx instead (see EDGES)."""
     osid, ver, _ = os_release()
     if osid != "debian" or not ver.isdigit() or int(ver) < 13 or not os.path.exists("/usr/bin/sqv"):
         return False
     return os.environ.get("COWSEC_OPENRESTY_KEY_FIXED") != "1"
 
 
-OPENRESTY_BLOCKED_MSG = ("Debian 13's apt rejects OpenResty's package signing key because it still uses SHA-1 "
-                         "(openresty/openresty#1072). The edge and WAF can't be installed until OpenResty updates its key; "
-                         "CrowdSec, the firewall bouncer, the ban policy and the console all work without it.")
+EDGE_NGINX_MSG = ("Debian 13's apt rejects OpenResty's package signing key because it still uses SHA-1 "
+                  "(openresty/openresty#1072), so the edge here is Debian's own nginx with its Lua module and CrowdSec's "
+                  "nginx bouncer. Same WAF and bans, and every package is signed by Debian or CrowdSec.")
+
+
+def edge_kind():
+    """Which edge this server uses: the one already installed, else OpenResty unless it's blocked."""
+    forced = os.environ.get("COWSEC_EDGE")
+    if forced in EDGES:
+        return forced
+    try:
+        kind = open(EDGE_FILE).read().strip()
+        if kind in EDGES:
+            return kind
+    except OSError:
+        pass
+    if os.path.exists(EDGES["openresty"]["bin"]):
+        return "openresty"
+    return "nginx" if openresty_blocked() else "openresty"
+
+
+def use_edge(kind):
+    global EDGE_KIND, EDGE_SVC, EDGE_BIN, EDGE_LOGS, EDGE_BOUNCER, EDGE_BOUNCER_CONF, NGX, RESTY_DIR
+    e = EDGES[kind]
+    EDGE_KIND, EDGE_SVC, EDGE_BIN, EDGE_LOGS, EDGE_BOUNCER = kind, e["service"], e["bin"], e["logs"], e["bouncer"]
+    EDGE_BOUNCER_CONF = CS_DIR + "/bouncers/%s.conf" % e["bouncer"]
+    NGX, RESTY_DIR = e["conf"], e["resty"]
 
 
 def step_edge(c, r, ctx):
-    if openresty_blocked():
-        raise StepError(OPENRESTY_BLOCKED_MSG + " Turn the edge off in the wizard's Protection step and install again.")
     mc = ctx["mailcow"]
-    osid, ver, code = os_release()
-    flavour, comp = ("ubuntu", "main") if osid == "ubuntu" else ("debian", "openresty")
-    code = repo_codename("https://openresty.org/package/" + flavour, flavour, code, r)
-    apt_key_repo(r, "openresty", "https://openresty.org/package/pubkey.gpg",
-                 "deb [signed-by=/usr/share/keyrings/openresty.gpg] https://openresty.org/package/%s %s %s" % (flavour, code, comp),
-                 "/usr/share/keyrings/openresty.gpg")
-    apt_install(r, ["openresty", "crowdsec-openresty-bouncer"], no_start=True)
-    r.sh(["systemctl", "stop", "openresty"], check=False)
+    if EDGE_KIND == "nginx":
+        r.log(EDGE_NGINX_MSG)
+        # lua-cjson from Debian: the bouncer's own script would build it with luarocks, which needs a compiler
+        apt_install(r, ["nginx", "libnginx-mod-http-lua", "lua-resty-core", "lua-resty-lrucache", "lua-cjson", "luarocks", EDGE_BOUNCER],
+                    no_start=True)
+    else:
+        osid, ver, code = os_release()
+        flavour, comp = ("ubuntu", "main") if osid == "ubuntu" else ("debian", "openresty")
+        code = repo_codename("https://openresty.org/package/" + flavour, flavour, code, r)
+        apt_key_repo(r, "openresty", "https://openresty.org/package/pubkey.gpg",
+                     "deb [signed-by=/usr/share/keyrings/openresty.gpg] https://openresty.org/package/%s %s %s" % (flavour, code, comp),
+                     "/usr/share/keyrings/openresty.gpg")
+        apt_install(r, ["openresty", EDGE_BOUNCER], no_start=True)
+    write(EDGE_FILE, EDGE_KIND + "\n", r=r, keep_backup=False)
+    r.sh(["systemctl", "stop", EDGE_SVC], check=False)
     ensure_resty_http(r)
-    os.makedirs("/var/log/openresty", exist_ok=True)
+    os.makedirs(EDGE_LOGS, exist_ok=True)
     os.makedirs(NGX + "/sites", exist_ok=True)
     conf_path = os.path.join(mc["dir"], "mailcow.conf")
     moving = (mc["httpsBind"] != "127.0.0.1" or mc["httpsPort"] != str(EDGE_MAILCOW_HTTPS)
               or mc["httpPort"] != str(EDGE_MAILCOW_HTTP))
-    write(NGX + "/nginx.conf", NGINX_CONF, r=r)
+    write(NGX + "/nginx.conf", edge_nginx_conf(), r=r)
     write(NGX + "/cowsec_mailcow_proxy.conf", PROXY_CONF.replace("{https}", str(EDGE_MAILCOW_HTTPS)), r=r)
     write(NGX + "/sites/cowsec-mailcow.conf", edge_sites(c, ctx), r=r)
     # AppSec WAF: engine on localhost, bouncer asks it about every request
     write(CS_DIR + "/acquis.d/cowsec-appsec.yaml",
-          "# Managed by CowSec: AppSec (WAF) engine for the OpenResty edge.\nappsec_config: crowdsecurity/appsec-default\n"
+          "# Managed by CowSec: AppSec (WAF) engine for the edge.\nappsec_config: crowdsecurity/appsec-default\n"
           "labels:\n  type: appsec\nlisten_addr: 127.0.0.1:7422\nsource: appsec\n", r=r)
     r.sh(["cscli", "collections", "install"] + APPSEC_COLLECTIONS)
     try:
         appsec_curate(r)  # mail WAF: mail-stack rules block, everything else watches for scanners
     except StepError as e:
         r.log("mail WAF not applied, CrowdSec's default AppSec config stays: %s" % e)
-    bconf = CS_DIR + "/bouncers/crowdsec-openresty-bouncer.conf"
+    bconf = EDGE_BOUNCER_CONF
     set_kv(bconf, {"API_URL": lapi_url().rstrip("/"), "APPSEC_URL": "http://127.0.0.1:7422", "APPSEC_FAILURE_ACTION": "passthrough", "MODE": "live"}, r)
     os.chmod(bconf, 0o600)
     restart_crowdsec(r)
     if moving:
         r.log("moving mailcow's web server to 127.0.0.1:%d/%d so the edge can own ports 80/443" % (EDGE_MAILCOW_HTTP, EDGE_MAILCOW_HTTPS))
         backup(conf_path, r)
-        r.sh(["systemctl", "stop", "openresty"], check=False)
+        r.sh(["systemctl", "stop", EDGE_SVC], check=False)
         set_kv(conf_path, {"HTTP_PORT": str(EDGE_MAILCOW_HTTP), "HTTP_BIND": "127.0.0.1",
                            "HTTPS_PORT": str(EDGE_MAILCOW_HTTPS), "HTTPS_BIND": "127.0.0.1"}, r)
         compose(mc["dir"], ["up", "-d"], r)
         ctx["rollback_mailcow_conf"] = True
-    rc, out = r.sh([OPENRESTY + "/bin/openresty", "-t"], check=False)
+    rc, out = r.sh([EDGE_BIN, "-t"], check=False)
     if rc != 0:
-        raise StepError("OpenResty configuration test failed")
-    r.sh(["systemctl", "enable", "openresty"])
-    r.sh(["systemctl", "restart", "openresty"])
+        raise StepError("the edge's configuration test failed")
+    r.sh(["systemctl", "enable", EDGE_SVC])
+    r.sh(["systemctl", "restart", EDGE_SVC])
     for _ in range(20):
-        if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
+        if run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0:
             break
         time.sleep(1)
     else:
-        raise StepError("OpenResty did not start (see journalctl -u openresty)")
+        raise StepError("the edge did not start (see journalctl -u %s)" % EDGE_SVC)
     ctx.pop("rollback_mailcow_conf", None)
-    # Reload OpenResty when mailcow (or the existing ACME client) renews the certificate.
+    # Reload the edge when mailcow (or the existing ACME client) renews the certificate.
     if c["certs"]["mode"] in ("mailcow", "existing"):
         cert = c["certs"]["certPath"] if c["certs"]["mode"] == "existing" else os.path.join(mc["dir"], "data/assets/ssl/cert.pem")
         if cert.startswith("/etc/letsencrypt/"):
             # certbot swaps symlinks on renewal, which a path watch can miss
             write("/etc/letsencrypt/renewal-hooks/deploy/cowsec-openresty.sh",
                   "#!/bin/sh\n# Managed by CowSec: reload the edge after certbot renews.\n"
-                  "systemctl is-active -q openresty && systemctl reload openresty || true\n", 0o755, r=r)
+                  "systemctl is-active -q %s && systemctl reload %s || true\n" % (EDGE_SVC, EDGE_SVC), 0o755, r=r)
         write("/etc/systemd/system/cowsec-cert-watch.path",
-              "[Unit]\nDescription=Reload OpenResty when the mail certificate is renewed (CowSec)\n\n"
+              "[Unit]\nDescription=Reload the edge when the mail certificate is renewed (CowSec)\n\n"
               "[Path]\nPathChanged=%s\n\n[Install]\nWantedBy=multi-user.target\n" % cert, r=r)
         write("/etc/systemd/system/cowsec-cert-watch.service",
-              "[Unit]\nDescription=Reload OpenResty after a mailcow certificate change (CowSec)\n\n"
-              "[Service]\nType=oneshot\nExecStartPre=/bin/sleep 10\nExecStart=/bin/systemctl reload openresty\n", r=r)
+              "[Unit]\nDescription=Reload the edge after a mailcow certificate change (CowSec)\n\n"
+              "[Service]\nType=oneshot\nExecStartPre=/bin/sleep 10\nExecStart=/bin/systemctl reload %s\n" % EDGE_SVC, r=r)
         r.sh(["systemctl", "daemon-reload"])
         r.sh(["systemctl", "enable", "--now", "cowsec-cert-watch.path"])
     write(CS_DIR + "/acquis.d/cowsec-mailcow.yaml", mailcow_acquis(c, mc), r=r)
@@ -1757,7 +1830,7 @@ def rollback_edge(c, r, ctx):
     baks = sorted(glob.glob(conf_path + ".cowsec-bak-*"))
     if baks:
         r.log("rolling back: restoring %s and restarting mailcow's web server" % baks[-1])
-        r.sh(["systemctl", "stop", "openresty"], check=False)
+        r.sh(["systemctl", "stop", EDGE_SVC], check=False)
         shutil.copy2(baks[-1], conf_path)
         compose(mc["dir"], ["up", "-d"], r, check=False)
 
@@ -1841,8 +1914,8 @@ def deploy_certs(c, r, ctx):
         compose(mc["dir"], ["exec", "-T", "postfix-mailcow", "postfix", "reload"], r, check=False)
     if os.path.exists(NGX + "/sites/cowsec-mailcow.conf"):
         write(NGX + "/sites/cowsec-mailcow.conf", edge_sites(c, ctx), r=r)
-        r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"])
-        r.sh(["systemctl", "reload", "openresty"], check=False)
+        r.sh([EDGE_BIN, "-t", "-q"])
+        r.sh(["systemctl", "reload", EDGE_SVC], check=False)
 
 
 def host_covered(host, c):
@@ -1935,7 +2008,7 @@ def certs_renew(r):
 REALIP_SCRIPT = r"""#!/bin/sh
 # Managed by CowSec: trust CF-Connecting-IP only from Cloudflare's published ranges.
 set -eu
-OUT=/usr/local/openresty/nginx/conf/conf.d/cloudflare_realip.conf
+OUT=@CONF@/conf.d/cloudflare_realip.conf
 TMP=$(mktemp)
 { echo "# generated by cowsec-cloudflare-realip $(date -I)"
   for u in https://www.cloudflare.com/ips-v4 https://www.cloudflare.com/ips-v6; do
@@ -1944,14 +2017,14 @@ TMP=$(mktemp)
   echo "real_ip_header CF-Connecting-IP;"; } > "$TMP"
 if [ "$(grep -c set_real_ip_from "$TMP")" -lt 10 ]; then echo "too few ranges fetched, keeping old file" >&2; rm -f "$TMP"; exit 1; fi
 install -m 644 "$TMP" "$OUT"; rm -f "$TMP"
-/usr/local/openresty/bin/openresty -t -q && systemctl reload openresty
+@BIN@ -t -q && systemctl reload @SVC@
 """
 
 
 def step_cloudflare_realip(c, r, ctx):
-    write(LIB_DIR + "/cowsec-cloudflare-realip", REALIP_SCRIPT, 0o755, r=r)
+    write(LIB_DIR + "/cowsec-cloudflare-realip", REALIP_SCRIPT.replace("@CONF@", NGX).replace("@BIN@", EDGE_BIN).replace("@SVC@", EDGE_SVC), 0o755, r=r)
     write("/etc/systemd/system/cowsec-cloudflare-realip.service",
-          "[Unit]\nDescription=Refresh Cloudflare real-IP ranges for OpenResty (CowSec)\nAfter=network-online.target\n\n"
+          "[Unit]\nDescription=Refresh Cloudflare real-IP ranges for the edge (CowSec)\nAfter=network-online.target\n\n"
           "[Service]\nType=oneshot\nExecStart=%s/cowsec-cloudflare-realip\n" % LIB_DIR, r=r)
     write("/etc/systemd/system/cowsec-cloudflare-realip.timer",
           "[Unit]\nDescription=Monthly Cloudflare real-IP refresh (CowSec)\n\n[Timer]\nOnCalendar=monthly\nPersistent=true\n\n"
@@ -2067,13 +2140,13 @@ def step_access(c, r, ctx):
         allow = ("".join("    allow %s;\n" % x for x in c["lanRanges"]) + "    deny all;\n") if mode == "lan" else ""
         write(site, CONSOLE_SITE.format(host=host, mode=mode, listen=listen(443, True, False, ctx["ipv6"]), cert=cert, key=key,
                                         allow=allow, console=CONSOLE_ADDR), r=r)
-        r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"])
-        r.sh(["systemctl", "reload", "openresty"])
+        r.sh([EDGE_BIN, "-t", "-q"])
+        r.sh(["systemctl", "reload", EDGE_SVC])
     elif os.path.exists(site):
         os.remove(site)
         r.log("removed %s" % site)
-        if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
-            r.sh(["systemctl", "reload", "openresty"])
+        if run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0:
+            r.sh(["systemctl", "reload", EDGE_SVC])
     if mode == "tunnel":
         r.redact.append(c["access"]["tunnelToken"])
         apt_key_repo(r, "cloudflared", "https://pkg.cloudflare.com/cloudflare-main.gpg",
@@ -2095,7 +2168,7 @@ def step_finish(c, r, ctx):
         raise StepError("CrowdSec configuration test failed")
     restart_crowdsec(r)
     time.sleep(5)
-    for svc in ("crowdsec", "crowdsec-firewall-bouncer") + (("openresty",) if c["components"]["edge"] else ()):
+    for svc in ("crowdsec", "crowdsec-firewall-bouncer") + ((EDGE_SVC,) if c["components"]["edge"] else ()):
         rc, _ = run(["systemctl", "is-active", "--quiet", svc])
         r.log("%s: %s" % (svc, "running" if rc == 0 else "NOT RUNNING"))
         if rc != 0:
@@ -2113,7 +2186,7 @@ STEPS = [
     ("detection", "Read mailcow's logs and never ban the local network", lambda c: True, step_detection),
     ("firewall", "Firewall bouncer (host services and Docker-published mail ports)", lambda c: True, step_firewall),
     ("certs", "Certificates via DNS-01 (lego)", lambda c: c["certs"]["mode"] == "dns01", step_certs),
-    ("edge", "OpenResty edge with the CrowdSec bouncer and AppSec WAF", lambda c: c["components"]["edge"], step_edge),
+    ("edge", "Web edge with the CrowdSec bouncer and AppSec WAF", lambda c: c["components"]["edge"], step_edge),
     ("realip", "Cloudflare real visitor IPs", lambda c: c["components"]["edge"] and c["components"]["cloudflareRealIP"], step_cloudflare_realip),
     ("chrony", "Accurate clock (chrony)", lambda c: c["components"]["chronyPtp"], step_chrony),
     ("policy", "Ban policy: home countries, abroad login rule, escalating bans", lambda c: c["components"]["banPolicy"], step_ban_policy),
@@ -2677,7 +2750,7 @@ def crowdsec_upgrade(r, progress):
     steps = [("backup", "Back up /etc/crowdsec"), ("refresh", "Check package versions"), ("upgrade", "Upgrade CrowdSec and bouncers"),
              ("test", "Test the configuration"), ("restart", "Restart the engine and bouncers"), ("verify", "Verify everything is protecting")]
     progress(None, "plan", [{"id": s, "title": t} for s, t in steps])
-    pkgs = [p for p in ("crowdsec",) + FW_PKGS + ("crowdsec-openresty-bouncer",)
+    pkgs = [p for p in ("crowdsec",) + FW_PKGS + ("crowdsec-openresty-bouncer", "crowdsec-nginx-bouncer")
             if run(["dpkg-query", "-W", "-f=${Status}", p])[1] == "install ok installed"]
     for sid, title in steps:
         progress(sid, "running")
@@ -2692,18 +2765,19 @@ def crowdsec_upgrade(r, progress):
             r.sh(["apt-get", "install", "-y", "-q", "--only-upgrade", "-o", "Dpkg::Options::=--force-confold", "-o", "Dpkg::Options::=--force-confdef"] + pkgs, timeout=1800)
         elif sid == "test":
             r.sh(["crowdsec", "-c", CS_DIR + "/config.yaml", "-t"])
-            if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
-                r.sh([OPENRESTY + "/bin/openresty", "-t", "-q"])
+            if run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0:
+                r.sh([EDGE_BIN, "-t", "-q"])
         elif sid == "restart":
             restart_crowdsec(r)
             time.sleep(5)
             r.sh(["systemctl", "restart", "crowdsec-firewall-bouncer"])
-            if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
-                r.sh(["systemctl", "reload", "openresty"])
+            if run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0:
+                r.sh(["systemctl", "reload", EDGE_SVC])
         elif sid == "verify":
             time.sleep(3)
             checks = []
-            for svc in ["crowdsec", "crowdsec-firewall-bouncer"] + (["openresty"] if os.path.exists("/lib/systemd/system/openresty.service") else []):
+            edge = os.path.exists("/lib/systemd/system/openresty.service") if EDGE_KIND == "openresty" else edge_installed()
+            for svc in ["crowdsec", "crowdsec-firewall-bouncer"] + ([EDGE_SVC] if edge else []):
                 ok = run(["systemctl", "is-active", "--quiet", svc])[0] == 0
                 checks.append({"name": svc + " running", "ok": ok, "detail": ""})
             rc, out = run(["cscli", "lapi", "status"])
@@ -2749,7 +2823,7 @@ def mailcow_post_checks(r, ctx_certs=True):
     port = conf.get("HTTPS_PORT", "443")
     rc, code = run(["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "-m", "15", "https://127.0.0.1:%s/" % port])
     check("mailcow web answers on 127.0.0.1:%s" % port, code in ("200", "301", "302"), "HTTP %s" % code)
-    if run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0:
+    if run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0 and edge_installed():
         rc, code = run(["curl", "-sk", "-o", "/dev/null", "-w", "%{http_code}", "-m", "15", "-H", "Host: " + conf.get("MAILCOW_HOSTNAME", ""), "https://127.0.0.1/"])
         check("Edge reaches mailcow", code in ("200", "301", "302"), "HTTP %s" % code)
     # firewall
@@ -2766,7 +2840,7 @@ def mailcow_post_checks(r, ctx_certs=True):
         wanted = re.findall(r"^\s+-\s+(\S+-mailcow-\S+)$", open(acq).read(), re.M)
         missing = [w for w in wanted if w not in names]
         if missing:
-            c0 = {"components": {"edge": run(["systemctl", "is-active", "--quiet", "openresty"])[0] == 0}}
+            c0 = {"components": {"edge": run(["systemctl", "is-active", "--quiet", EDGE_SVC])[0] == 0 and edge_installed()}}
             write(acq, mailcow_acquis(c0, mc), r=r)
             r.sh(["systemctl", "reload", "crowdsec"], check=False)
         check("CrowdSec reads postfix and dovecot", True, "container names %s" % ("updated" if missing else "unchanged"))
@@ -2843,3 +2917,6 @@ def mailcow_update(r, progress, opts):
         progress(sid, "ok")
     write(MAILCOW_UPDATE_CACHE, json.dumps({"state": "current", "checked": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "detail": "updated by CowSec"}) + "\n", 0o600)
     r.log("=== mailcow updated")
+
+
+use_edge(edge_kind())

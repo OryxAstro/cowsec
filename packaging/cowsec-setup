@@ -9,7 +9,7 @@
                                change how the console is reached
   cowsec-setup mailcow-api     let the console manage mailcow (domains, mailboxes, queue...) via mailcow's API
   cowsec-setup reset-wizard    re-open the browser setup wizard with a new token
-  cowsec-setup revert-edge     stop the OpenResty edge and give ports 80/443 back to mailcow
+  cowsec-setup revert-edge     stop the web edge and give ports 80/443 back to mailcow
   cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
   cowsec-setup appsec-curate   rebuild the mail WAF (mail-stack rules block, the rest watch for scanners)
   cowsec-setup fix-mailcow-port  move mailcow's local web port off 8081 (installs before 0.3.10)
@@ -125,7 +125,7 @@ def restore_mailcow(src, yes):
         sys.exit("No pre-install snapshot recorded. Snapshots are in %s; pass one with --from." % se.SNAPSHOT_DIR)
     print("This puts mailcow's settings and certificates back exactly as they were before CowSec:")
     print("  snapshot: %s" % path)
-    print("  - stops the OpenResty edge, so mailcow's own web server takes ports 80/443 again")
+    print("  - stops the web edge, so mailcow's own web server takes ports 80/443 again")
     print("  - restores mailcow.conf, extra.cf, docker-compose.override.yml and data/assets/ssl")
     print("  - restarts mailcow (mail is offline for a minute or two)")
     print("  CrowdSec and its firewall bouncer keep running; remove them with apt if you want them gone.")
@@ -161,7 +161,7 @@ def uninstall(yes):
     if res["kept_edge"]:
         print("  Your earlier OpenResty setup is back in front of mailcow.")
     print("  Remove the package with: sudo apt purge cowsec")
-    print("  CrowdSec, its bouncers, OpenResty and cloudflared stay installed; remove them with apt if you want.")
+    print("  CrowdSec, its bouncers, the edge's web server (OpenResty or nginx) and cloudflared stay installed; remove them with apt if you want.")
 
 
 def fix_mailcow_port():
@@ -192,7 +192,7 @@ def revert_edge():
     if not baks:
         sys.exit("no mailcow.conf backup from CowSec found")
     r = se.Runner(echo=True)
-    r.sh(["systemctl", "disable", "--now", "openresty"], check=False)
+    r.sh(["systemctl", "disable", "--now", se.EDGE_SVC], check=False)
     shutil.copy2(conf, conf + ".before-revert")
     shutil.copy2(baks[0], conf)
     r.log("restored %s (the copy taken before CowSec first changed it)" % baks[0])

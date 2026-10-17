@@ -1,6 +1,6 @@
 // Drives the setup wizard from unlock to "The barn is built", taking screenshots on the way.
 // Works for both paths: protecting an existing mailcow, and installing mailcow on a bare server
-// (setup.mode = "existing" | "bare"). Copes with Debian 13, where the edge isn't offered yet.
+// (setup.mode = "existing" | "bare"). Also copes with an install where the edge isn't offered (releases before 0.4.2 on Debian 13).
 // Exit codes: 0 installed, 1 the script broke, 2 the installer reported a failure.
 //   COWSEC_E2E_CONFIG=config.json node wizard.js [outdir]
 const fs = require('fs');

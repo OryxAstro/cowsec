@@ -22,7 +22,7 @@ type Section = 'manual' | 'kb' | 'trouble';
 
 const MANUAL: Article[] = [
   { id: 'barn-status', group: 'The Barn', title: 'Barn Status', summary: 'Health of the server and every protection, at a glance.',
-    body: ['Shows CrowdSec, the firewall bouncer, OpenResty and their timers, how many addresses the firewall is blocking, WAF traffic and its top rules, which logs CrowdSec reads, certificate expiry, the clock, and mailcow\'s containers.',
+    body: ['Shows CrowdSec, the firewall bouncer, the web edge (OpenResty, or nginx on Debian 13) and their timers, how many addresses the firewall is blocking, WAF traffic and its top rules, which logs CrowdSec reads, certificate expiry, the clock, and mailcow\'s containers.',
       { list: ['Use the service buttons to restart or reload a component safely.', 'A red tile means a protection is down: start there.', 'Certificate expiry turns amber at 14 days and red at 7.'] }] },
   { id: 'fresh-hay', group: 'The Barn', title: 'Fresh Hay (Updates)', summary: 'Update mailcow, CrowdSec, its bouncers and the hub.',
     body: ['mailcow updates run mailcow\'s own update.sh as a staged job: an optional backup, then a download of the new images before any downtime, then the update, then health checks of every container and of CowSec\'s protections.',
@@ -83,7 +83,7 @@ const MANUAL: Article[] = [
 
 const KB: Article[] = [
   { id: 'how-it-fits', title: 'How CowSec fits around mailcow', summary: 'The pieces, and where traffic goes.',
-    body: ['CrowdSec reads mailcow\'s logs and decides who to ban. The firewall bouncer enforces bans for every port; the OpenResty edge checks each web request with the CrowdSec bouncer and the AppSec WAF before it reaches mailcow, which listens only on localhost.', { img: architecture, alt: 'CowSec architecture' }] },
+    body: ['CrowdSec reads mailcow\'s logs and decides who to ban. The firewall bouncer enforces bans for every port; the web edge (OpenResty, or Debian\'s nginx on Debian 13) checks each web request with the CrowdSec bouncer and the AppSec WAF before it reaches mailcow, which listens only on localhost.', { img: architecture, alt: 'CowSec architecture' }] },
   { id: 'docker-ports', title: 'Why the firewall bouncer needs DOCKER-USER', summary: 'mailcow\'s mail ports are Docker-published.',
     body: ['Docker forwards SMTP and IMAP to mailcow\'s containers before the host\'s INPUT chain ever sees them. A bouncer on INPUT alone would never block mail. CowSec adds the DOCKER-USER chain for the iptables bouncer, or the forward hook for the nftables bouncer.'] },
   { id: 'ban-ladder', title: 'Home countries and escalating bans', summary: 'Stop sprays without locking out your own users.',
@@ -121,8 +121,8 @@ const TROUBLE: Article[] = [
     body: ['Check that timedatectl shows "System clock synchronized: yes". To re-enrol someone:', { code: 'sudo cowsec auth totp reset <user>' }] },
   { id: 'bans-mail', title: 'Bans don\'t stop mail traffic', summary: 'The bouncer must hook Docker\'s forwarded traffic.',
     body: [{ code: 'sudo iptables -S DOCKER-USER | grep -i crowdsec          # iptables bouncer\nsudo nft list table ip crowdsec | grep "hook forward"     # nftables bouncer\nsudo systemctl restart crowdsec-firewall-bouncer' }] },
-  { id: 'edge', title: 'Setup stopped at "OpenResty edge"', summary: 'Something else holds 80/443.',
-    body: ['CowSec puts mailcow\'s web settings back automatically. Find what holds the ports, fix it, then run Install again:', { code: "ss -ltnp | grep -E ':80 |:443 '\njournalctl -u openresty -n 50" }] },
+  { id: 'edge', title: 'Setup stopped at "Web edge"', summary: 'Something else holds 80/443.',
+    body: ['CowSec puts mailcow\'s web settings back automatically. Find what holds the ports, fix it, then run Install again. The edge is OpenResty, or nginx on Debian 13:', { code: "ss -ltnp | grep -E ':80 |:443 '\njournalctl -u openresty -n 50   # Debian 13: journalctl -u nginx -n 50" }] },
   { id: 'certs', title: 'DNS-01 certificates failed', summary: 'Credentials, DNS host or CAA.',
     body: [{ list: ['The credentials need DNS edit rights for that zone.', 'The domain\'s DNS must be hosted at that provider.', 'A CAA record may forbid Let\'s Encrypt.'] }, 'Use Test run (staging) while you fix it.'] },
   { id: 'double', title: 'Events are counted twice', summary: 'Two acquisitions read the same logs.',
@@ -131,11 +131,12 @@ const TROUBLE: Article[] = [
     body: ['New cloud servers run unattended upgrades just after boot. CowSec waits up to 20 minutes.', { code: "ps aux | grep -E 'apt|dpkg'" }] },
   { id: 'capi', title: '"CrowdSec did not restart … api.crowdsec.net"', summary: 'CrowdSec can\'t reach its central API.',
     body: ['CrowdSec stops at startup if it can\'t sign in to its central API. Check DNS, outbound firewalls and /etc/hosts. On a deliberately offline server, comment out credentials_path under online_client in /etc/crowdsec/config.yaml.'] },
-  { id: 'resty', title: 'OpenResty: module \'resty.http\' not found', summary: 'A missing Lua library.',
-    body: [{ code: 'sudo opm get ledgetech/lua-resty-http=0.17.1 && sudo systemctl restart openresty' }] },
-  { id: 'debian13', title: 'Debian 13: no OpenResty edge or WAF', summary: 'OpenResty\'s signing key still uses SHA-1.',
-    body: ['Debian 13\'s apt rejects keys bound with SHA-1 since 1 February 2026, and OpenResty\'s repository key still is (openresty/openresty#1072). CowSec won\'t weaken apt\'s checks for every repository to get around it.',
-      { list: ['On Debian 13 the wizard leaves the edge and WAF off, uses mailcow\'s own certificates, and makes the console reachable from the server itself (use an SSH tunnel or a Cloudflare Tunnel).', 'CrowdSec, the firewall bouncer (Docker\'s mail ports included), the ban policy and mailcow management all work.', 'When OpenResty publishes a new key, run sudo cowsec-setup reset-wizard and turn the edge on.'] }] },
+  { id: 'resty', title: 'Edge: module \'resty.http\' not found', summary: 'A missing Lua library.',
+    body: ['OpenResty:', { code: 'sudo opm get ledgetech/lua-resty-http=0.17.1 && sudo systemctl restart openresty' },
+      'Debian 13 (nginx edge):', { code: 'sudo luarocks install lua-resty-http 0.17.1-0 && sudo systemctl restart nginx' }] },
+  { id: 'debian13', title: 'Debian 13: the edge runs on Debian\'s nginx', summary: 'OpenResty\'s signing key still uses SHA-1.',
+    body: ['Debian 13\'s apt rejects keys bound with SHA-1 since 1 February 2026, and OpenResty\'s repository key still is (openresty/openresty#1072). CowSec won\'t weaken apt\'s checks for every repository to get around it, so on Debian 13 the edge is built from Debian\'s own packages instead.',
+      { list: ['nginx with Debian\'s Lua module, and CrowdSec\'s nginx bouncer: the same bouncer library and AppSec WAF as the OpenResty edge, so bans, the mail WAF, DNS-01 certificates and LAN or internet access to the console all work.', 'Every package is signed by Debian or CrowdSec, and updates arrive through apt as usual.', 'Its config lives in /etc/nginx, its logs in /var/log/nginx, and the service is nginx (journalctl -u nginx).'] }] },
   { id: 'docker-io', title: 'Installing mailcow: docker.io is installed', summary: 'mailcow needs Docker CE 24+.',
     body: [{ code: 'sudo apt remove docker.io' }, 'Then run the install again; CowSec installs Docker CE from Docker\'s repository.'] },
 ];

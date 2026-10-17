@@ -9,13 +9,13 @@
 
 | Need | Why |
 |---|---|
-| Debian 12/13 or Ubuntu 22.04/24.04, amd64, systemd | Tested with a full install on each. On **Debian 13** the OpenResty edge and WAF aren't available yet: Debian 13 rejects OpenResty's package signing key because it still uses SHA-1 ([openresty#1072](https://github.com/openresty/openresty/issues/1072)), and CowSec won't weaken apt's checks to get around it. Everything else works; the console is reached through an SSH tunnel or a Cloudflare Tunnel there. Debian 11 has reached end of life and no longer gets security updates. |
+| Debian 12/13 or Ubuntu 22.04/24.04, amd64, systemd | Tested with a full install on each. On **Debian 13** the edge is Debian's own nginx with its Lua module and CrowdSec's nginx bouncer, because Debian 13 rejects OpenResty's package signing key, which still uses SHA-1 ([openresty#1072](https://github.com/openresty/openresty/issues/1072)), and CowSec won't weaken apt's checks to get around it. It has the same bouncer and AppSec WAF, and everything works as on the other systems. Debian 11 has reached end of life and no longer gets security updates. |
 | mailcow-dockerized, or a clean server | With an existing mailcow, CowSec reads its config (`mailcow.conf`), containers and domains. It looks in `/opt/mailcow-dockerized`, `/opt/mailcow` and `/srv/mailcow-dockerized`; set `MAILCOW_DIR` if yours lives elsewhere. On a clean server, the wizard can install Docker CE and mailcow for you (6 GiB of memory and 20 GB of disk recommended, ports 25, 80, 110, 143, 443, 465, 587, 993, 995 and 4190 free). |
 | Root (sudo) | It installs packages, edits firewall and mailcow settings, and manages services. |
-| Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
+| Outbound HTTPS | To `packagecloud.io` (CrowdSec), `openresty.org` (OpenResty; not on Debian 13), `github.com` (lego, and mailcow when installing it), `download.docker.com` and `ghcr.io` (only when installing mailcow), `pkg.cloudflare.com` (only for Cloudflare Tunnel). |
 | An accurate clock | 2FA codes depend on it. On Proxmox/KVM, the wizard can sync to the hypervisor's clock. |
 | No other CrowdSec | If CrowdSec already runs **in a container** (e.g. a compose override), remove it first: two engines double-ban. A CrowdSec already installed on the host is reused. |
-| Ports | If you enable the edge: 80/443 are taken over by OpenResty; mailcow's web server moves to `127.0.0.1:8180/8443`, as [mailcow's reverse-proxy guide](https://docs.mailcow.email/post_installation/reverse-proxy/r_p/) describes (its example HTTP port, 8080, is taken by CrowdSec; the guide forbids 8081, which installs before 0.3.10 used, and upgrading moves it). CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
+| Ports | If you enable the edge: 80/443 are taken over by OpenResty (Debian's nginx on Debian 13); mailcow's web server moves to `127.0.0.1:8180/8443`, as [mailcow's reverse-proxy guide](https://docs.mailcow.email/post_installation/reverse-proxy/r_p/) describes (its example HTTP port, 8080, is taken by CrowdSec; the guide forbids 8081, which installs before 0.3.10 used, and upgrading moves it). CowSec uses `127.0.0.1:8090` (console) and `:9443` (setup wizard, only until setup finishes). CrowdSec uses `127.0.0.1:8080` and `127.0.0.1:7422`. |
 
 Back up before you start: a mailcow backup (`helper-scripts/backup_and_restore.sh`) and a VM snapshot if you can. CowSec also backs up every file it changes (`<file>.cowsec-bak-<timestamp>`).
 
@@ -36,7 +36,7 @@ CowSec is built to be added to a working mailcow server, and it was developed an
 **The safety net:**
 - Before the first change, CowSec saves mailcow's settings and certificates (`mailcow.conf`, `extra.cf`, `docker-compose.override.yml`, `data/assets/ssl`), CrowdSec's configuration and the current firewall rules to `/var/backups/cowsec/pre-install-<time>.tar.gz`.
 - Every file it edits is also backed up next to the original as `<file>.cowsec-bak-<time>`.
-- If the OpenResty edge can't start, mailcow's web settings are put back automatically.
+- If the edge can't start, mailcow's web settings are put back automatically.
 - `sudo cowsec-setup restore-mailcow` puts mailcow back exactly as it was from the snapshot at any time. It stops the edge, restores those files, and restarts mailcow. CrowdSec keeps protecting the server.
 - `sudo apt remove cowsec` hands mailcow back to its own settings automatically before removing CowSec: ports, certificates, ban enforcement and API key as before, with nothing left to expire or fail later. See [Uninstalling](maintenance.md#uninstalling).
 
@@ -69,7 +69,7 @@ This prints `https://<server-ip>:9443`, a one-time **setup token**, and the SHA-
 1. **Checks.** These are read-only: OS, Docker, mailcow, running containers, port owners, `DOCKER-USER`, clock, disk, network. Failed checks must be fixed first; warnings are advisory.
 2. **Protection.**
    - Home countries.
-   - OpenResty edge + AppSec WAF.
+   - Web edge + AppSec WAF (OpenResty, or Debian's nginx on Debian 13).
    - Admin pages LAN-only.
    - "Behind Cloudflare's proxy" (only if your web hostnames are orange-clouded).
    - Precise clock.
@@ -150,10 +150,10 @@ An earlier hand-installed CowSec (a unit in `/etc/systemd/system` running `/opt/
 | Step | Changes |
 |---|---|
 | CrowdSec | Adds the CrowdSec apt repo (signed); installs `crowdsec`; installs the mail, web, SSH and Linux collections. |
-| Detection | `/etc/crowdsec/acquis.d/cowsec-mailcow.yaml` (postfix + dovecot via Docker; web logs from OpenResty or nginx-mailcow); `parsers/s02-enrich/cowsec-private-whitelist.yaml` (your LAN). |
+| Detection | `/etc/crowdsec/acquis.d/cowsec-mailcow.yaml` (postfix + dovecot via Docker; web logs from the edge or nginx-mailcow); `parsers/s02-enrich/cowsec-private-whitelist.yaml` (your LAN). |
 | Firewall | Keeps an installed bouncer. Otherwise installs `crowdsec-firewall-bouncer-iptables`. iptables bouncer: `iptables_chains: [INPUT, DOCKER-USER]`. nftables bouncer: `nftables_hooks: [input, forward]`. Both point at the local API that `local_api_credentials.yaml` names. |
 | Certificates | lego (pinned, checksum-verified) in `/usr/lib/cowsec/lego`. Secrets: `/etc/cowsec/dns.env` (root only). Certificates are copied into `data/assets/ssl/` (main + per-domain SNI folders) and `data/conf/postfix/extra.cf` + `cowsec_sni.map`. `SKIP_LETS_ENCRYPT=y`. Renewal runs on `cowsec-certs.timer`. |
-| Edge | OpenResty repo + `openresty`, `crowdsec-openresty-bouncer`; `/usr/local/openresty/nginx/conf/{nginx.conf,cowsec_mailcow_proxy.conf,sites/cowsec-mailcow.conf}`; AppSec on `127.0.0.1:7422`; mailcow.conf `HTTP_BIND/HTTPS_BIND=127.0.0.1`, `HTTP_PORT=8180`, `HTTPS_PORT=8443`. |
+| Edge | OpenResty repo + `openresty`, `crowdsec-openresty-bouncer`; `/usr/local/openresty/nginx/conf/{nginx.conf,cowsec_mailcow_proxy.conf,sites/cowsec-mailcow.conf}`. On Debian 13 instead: Debian's `nginx`, `libnginx-mod-http-lua`, `lua-resty-core`, `lua-cjson`, `luarocks` and CrowdSec's `crowdsec-nginx-bouncer`; the same files under `/etc/nginx`, logs in `/var/log/nginx`, and `/etc/cowsec/edge` records which edge is in use. AppSec on `127.0.0.1:7422`; mailcow.conf `HTTP_BIND/HTTPS_BIND=127.0.0.1`, `HTTP_PORT=8180`, `HTTPS_PORT=8443`. |
 | Cloudflare real IP | `cowsec-cloudflare-realip.timer` (monthly), writes `conf.d/cloudflare_realip.conf`. |
 | Clock | chrony + `ptp_kvm` + `/etc/chrony/conf.d/cowsec-ptp.conf`. |
 | Ban policy | `/etc/crowdsec/profiles.yaml` (original kept as `profiles.yaml.pre-cowsec`) and `scenarios/cowsec-auth-abroad.yaml`. |

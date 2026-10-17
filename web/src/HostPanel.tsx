@@ -44,7 +44,7 @@ interface HostStatus {
   certificate: { notAfter: string | null; daysLeft: number | null; issuer: string | null; names: string[] } | null;
   cloudflareRealIP: { ranges: number; updated: string } | null;
   mailcowContainers: { running: number; total: number; unhealthy: string[] };
-  setup?: { accessMode: string | null; edge: boolean | null; certMode: string | null };
+  setup?: { accessMode: string | null; edge: boolean | null; certMode: string | null; edgeKind?: 'openresty' | 'nginx' };
 }
 
 const fmt = (n: number | undefined | null) => (n ?? 0).toLocaleString();
@@ -59,6 +59,7 @@ const svcLabel: Record<string, string> = {
   crowdsec: 'Herd dog (CrowdSec engine + LAPI)',
   'crowdsec-firewall-bouncer': 'Gate bouncer (firewall)',
   openresty: 'Electric fence (OpenResty + AppSec)',
+  nginx: 'Electric fence (nginx + AppSec)',
   chrony: 'Milking clock (chrony · KVM PTP)',
   cloudflared: 'Secret cattle path (Cloudflare Tunnel)',
   cowsec: 'CowSec console',
@@ -150,7 +151,7 @@ const ACTIONS: { id: string; label: string; hint: string }[] = [
   { id: 'reload-crowdsec', label: 'Reload CrowdSec', hint: 'A gentle nudge: re-read config, hub items and scenarios' },
   { id: 'restart-crowdsec', label: 'Restart CrowdSec', hint: 'Wake the herd dog: full restart of engine + LAPI' },
   { id: 'restart-firewall-bouncer', label: 'Restart gate bouncer', hint: 'Rebuild the firewall gate (ipset blocklists)' },
-  { id: 'reload-openresty', label: 'Re-wire the fence', hint: 'Reload OpenResty (config is tested first)' },
+  { id: 'reload-openresty', label: 'Re-wire the fence', hint: 'Reload the web edge (config is tested first)' },
 ];
 
 import PastureMap, { type FlowSample } from './PastureMap';
@@ -254,7 +255,8 @@ export default function HostPanel() {
   const bouncers = st.bouncerMetrics.bouncers ?? {};
   const cert = st.certificate;
   const certTone = !cert || cert.daysLeft == null ? 'rose' : cert.daysLeft < 14 ? 'rose' : cert.daysLeft < 30 ? 'amber' : 'emerald';
-  const edge = st.services.some((s) => s.name === 'openresty');
+  const edgeSvc = st.setup?.edgeKind === 'nginx' ? 'nginx' : 'openresty';
+  const edge = st.services.some((s) => s.name === edgeSvc);
   const allUp = servicesUp === st.services.length && (!edge || st.appsec.listening);
 
   return (
@@ -271,7 +273,7 @@ export default function HostPanel() {
         <PastureMap prev={flow.prev} cur={flow.cur} state={{
           blockedIPs: blocked,
           gateUp: st.services.some((s) => s.name === 'crowdsec-firewall-bouncer' && s.state === 'active'),
-          edgeUp: !edge || (st.services.some((s) => s.name === 'openresty' && s.state === 'active') && st.appsec.listening),
+          edgeUp: !edge || (st.services.some((s) => s.name === edgeSvc && s.state === 'active') && st.appsec.listening),
           engineUp: st.services.some((s) => s.name === 'crowdsec' && s.state === 'active') && st.lapi.listening,
           mailcowUp: st.mailcowContainers.total > 0 && st.mailcowContainers.running === st.mailcowContainers.total,
         }} />
@@ -339,7 +341,7 @@ export default function HostPanel() {
             </div>
           ))}
           <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs space-y-1.5">
-            <p className="font-semibold text-slate-300">OpenResty bouncer (HTTP + AppSec)</p>
+            <p className="font-semibold text-slate-300">{edgeSvc === 'nginx' ? 'nginx' : 'OpenResty'} bouncer (HTTP + AppSec)</p>
             {Object.entries(st.appsec.config).map(([k, v]) => (
               <div key={k} className="flex justify-between font-mono">
                 <span className="text-slate-500">{k}</span>

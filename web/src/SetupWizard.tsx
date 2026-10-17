@@ -114,6 +114,7 @@ export default function SetupWizard() {
   const [step, setStep] = useState(0);
 
   const [pre, setPre] = useState<Preflight | null>(null);
+  const edgeName = pre?.checks.some((c) => c.id === 'edge-nginx') ? 'nginx' : 'OpenResty'; // Debian 13 gets Debian's nginx
   const [home, setHome] = useState<string[]>([guessCountry()]);
   const [newCountry, setNewCountry] = useState('');
   const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true, mailcowApi: true });
@@ -182,12 +183,6 @@ export default function SetupWizard() {
       }
       if (d.mailcow?.hostname && !hostname) setHostname('cowsec.' + d.mailcow.hostname.split('.').slice(1).join('.'));
       setComp((c) => ({ ...c, chronyPtp: true }));
-      // Debian 13: OpenResty's packages can't be verified yet, so the edge starts off
-      if ((d.checks as Check[] | undefined)?.some((c) => c.id === 'openresty-key' && c.status === 'warn')) {
-        setComp((c) => ({ ...c, edge: false }));
-        setCertMode('mailcow'); // DNS-01 certificates are served by the edge
-        setAccess('local'); // so are LAN and internet access to the console; an SSH tunnel or Cloudflare Tunnel still work
-      }
       // an existing hand-built setup: start from the choices it already made
       const ex: Existing = d.existing || {};
       if (ex.edgeSites?.consoleHostname) setHostname(ex.edgeSites.consoleHostname);
@@ -529,15 +524,9 @@ export default function SetupWizard() {
             </div>
             <p className="text-xs text-slate-500 mt-1">Failed mail logins from these countries follow CrowdSec's normal rules; elsewhere is stricter, and repeat offenders get longer bans. You can change this later.</p>
           </div>
-          {pre?.checks.some((c) => c.id === 'openresty-key' && c.status === 'warn') ? (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100 space-y-1">
-              <p className="font-semibold">OpenResty edge with AppSec WAF: not available on Debian 13 yet</p>
-              <p className="text-amber-100/80">Debian 13 rejects OpenResty's package signing key because it still uses SHA-1. CowSec won't weaken apt's checks to get around it. Everything else installs; you can add the edge later once OpenResty updates its key (or use Debian 12 or Ubuntu).</p>
-            </div>
-          ) : (
-          <Toggle on={comp.edge} onChange={(v) => setComp({ ...comp, edge: v })} label="OpenResty edge with AppSec WAF" badge="recommended"
-            hint="Puts a hardened reverse proxy in front of mailcow's web UI: every request is checked by CrowdSec and its WAF. mailcow's own web server moves to localhost (ports 8180/8443)." />
-          )}
+          <Toggle on={comp.edge} onChange={(v) => setComp({ ...comp, edge: v })} label={`${edgeName} edge with AppSec WAF`} badge="recommended"
+            hint={"Puts a hardened reverse proxy in front of mailcow's web UI: every request is checked by CrowdSec and its WAF. mailcow's own web server moves to localhost (ports 8180/8443)." +
+              (edgeName === 'nginx' ? " On Debian 13 the edge is Debian's own nginx: apt rejects OpenResty's SHA-1 signing key, and CowSec won't weaken apt's checks to get around it." : '')} />
           <Toggle on={comp.edge && comp.adminLanOnly} disabled={!comp.edge} onChange={(v) => setComp({ ...comp, adminLanOnly: v })} label="mailcow admin pages on the local network only"
             hint="/admin and /domainadmin answer only from private addresses. Webmail, ActiveSync and autodiscover stay public." />
           <Toggle on={comp.edge && comp.cloudflareRealIP} disabled={!comp.edge} onChange={(v) => setComp({ ...comp, cloudflareRealIP: v })} label="Behind Cloudflare's proxy (orange cloud)"
@@ -750,7 +739,7 @@ export default function SetupWizard() {
             <ul className="text-sm text-slate-300 space-y-1.5 border border-slate-800 rounded-2xl p-4 bg-slate-950/40">
               <li>• Mail server: <b>{mcMode === 'install' ? `install mailcow (${mcBranch}) as ${mcHost} · ${mcTz}${mcClamOff ? ' · ClamAV off' : ''}` : `protect ${pre?.mailcow.hostname || 'the existing mailcow'}`}</b></li>
               <li>• Home countries: <b className="font-mono">{home.join(', ')}</b></li>
-              <li>• OpenResty edge + WAF: <b>{comp.edge ? 'yes' : 'no'}</b>{comp.edge && comp.adminLanOnly ? ' · admin pages LAN-only' : ''}{comp.edge && comp.cloudflareRealIP ? ' · Cloudflare real IP' : ''}</li>
+              <li>• {edgeName} edge + WAF: <b>{comp.edge ? 'yes' : 'no'}</b>{comp.edge && comp.adminLanOnly ? ' · admin pages LAN-only' : ''}{comp.edge && comp.cloudflareRealIP ? ' · Cloudflare real IP' : ''}</li>
               <li>• Certificates: <b>{certMode === 'dns01' ? `DNS-01 via ${provider} · ${domains.length} domain(s) · ${perDomain ? 'per domain' : 'shared'}${wildcard ? ' · wildcard' : ''}${staging ? ' · STAGING' : ''}` : certMode === 'existing' ? `your current certificates (${pre?.existing?.certbot?.name})` : "mailcow's own"}</b></li>
               <li>• Console: <b>{access === 'lan' ? `LAN at ${hostname}` : access === 'wan' ? `internet at ${hostname}` : access === 'tunnel' ? 'Cloudflare Tunnel' : 'this server only'}</b></li>
               <li>• Smart ban policy: <b>{comp.banPolicy ? 'yes' : 'no'}</b> · Accurate clock: <b>{comp.chronyPtp ? 'yes' : 'no'}</b> · mailcow management: <b>{comp.mailcowApi ? 'yes' : 'no'}</b></li>

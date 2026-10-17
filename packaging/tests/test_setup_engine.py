@@ -12,10 +12,22 @@ import unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRATCH = tempfile.mkdtemp(prefix="cowsec-test-")
+
+
+def mkdtemp(**kw):
+    """A scratch folder whose path has no "_": adopted files encode "/" as "__" in their names."""
+    while True:
+        d = tempfile.mkdtemp(**kw)
+        if "_" not in d:
+            return d
+        os.rmdir(d)
+
+
+SCRATCH = mkdtemp(prefix="cowsec-test-")
 atexit.register(shutil.rmtree, SCRATCH, ignore_errors=True)
 os.environ["COWSEC_STATE_DIR"] = os.path.join(SCRATCH, "state")
 os.makedirs(os.environ["COWSEC_STATE_DIR"], exist_ok=True)
+os.environ["COWSEC_EDGE"] = "openresty"  # the same edge on every build host; EdgeFlavour tests the choice itself
 spec = importlib.util.spec_from_file_location("setup_engine", os.path.join(HERE, "..", "lib", "setup_engine.py"))
 se = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(se)
@@ -127,9 +139,68 @@ class Releases(unittest.TestCase):
                 self.assertEqual(se.openresty_blocked(), want, rel)
 
 
+class EdgeFlavour(unittest.TestCase):
+    """Debian 13 can't verify OpenResty's packages, so its edge is Debian's own nginx."""
+
+    def tearDown(self):
+        se.use_edge("openresty")
+
+    def kind(self, blocked, edge_file=None, openresty_installed=False):
+        path = os.path.join(mkdtemp(dir=SCRATCH), "edge")
+        if edge_file:
+            with open(path, "w") as f:
+                f.write(edge_file + "\n")
+        real = os.path.exists
+        with mock.patch.dict(os.environ, {"COWSEC_EDGE": ""}), mock.patch.object(se, "EDGE_FILE", path), \
+             mock.patch.object(se, "openresty_blocked", return_value=blocked), \
+             mock.patch.object(se.os.path, "exists", side_effect=lambda p: openresty_installed if p == se.EDGES["openresty"]["bin"] else real(p)):
+            return se.edge_kind()
+
+    def test_choice(self):
+        self.assertEqual(self.kind(blocked=False), "openresty")
+        self.assertEqual(self.kind(blocked=True), "nginx", "Debian 13 gets Debian's nginx")
+        self.assertEqual(self.kind(blocked=True, openresty_installed=True), "openresty", "an OpenResty that's already there stays")
+        self.assertEqual(self.kind(blocked=False, edge_file="nginx"), "nginx", "the installed flavour wins")
+
+    def test_nginx_paths_and_config(self):
+        se.use_edge("nginx")
+        self.assertEqual((se.NGX, se.EDGE_SVC, se.EDGE_BIN, se.EDGE_LOGS), ("/etc/nginx", "nginx", "/usr/sbin/nginx", "/var/log/nginx"))
+        self.assertEqual(se.EDGE_BOUNCER_CONF, "/etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf")
+        conf = se.edge_nginx_conf()
+        self.assertIn("include /etc/nginx/modules-enabled/*.conf;", conf, "Debian's nginx loads the Lua module from modules-enabled")
+        self.assertIn("pid /run/nginx.pid;", conf)
+        self.assertIn("/var/log/nginx/access.log", conf)
+        for ph in ("{name}", "{head}", "{logs}"):
+            self.assertNotIn(ph, conf, "no template placeholders left")
+        acq = se.mailcow_acquis({"components": {"edge": True}}, {"containers": {}})
+        self.assertIn("/var/log/nginx/access.log", acq, "CrowdSec reads the edge's own logs")
+
+    def test_openresty_config_unchanged(self):
+        se.use_edge("openresty")
+        conf = se.edge_nginx_conf()
+        self.assertNotIn("modules-enabled", conf)
+        self.assertIn("/var/log/openresty/access.log", conf)
+
+    def test_nginx_install_uses_debian_packages(self):
+        se.use_edge("nginx")
+        r = FakeRunner()
+        installed = []
+        with mock.patch.object(se, "apt_install", side_effect=lambda r, pkgs, no_start=False: installed.extend(pkgs)), \
+             mock.patch.object(se, "apt_key_repo") as repo, mock.patch.object(se, "write"), \
+             mock.patch.object(se, "ensure_resty_http", side_effect=se.StepError("stop here")):
+            with self.assertRaises(se.StepError):
+                se.step_edge({}, r, {"mailcow": {}})
+        repo.assert_not_called()  # never OpenResty's repository
+        self.assertIn("nginx", installed)
+        self.assertIn("libnginx-mod-http-lua", installed)
+        self.assertIn("crowdsec-nginx-bouncer", installed)
+        self.assertIn("lua-cjson", installed, "Debian's lua-cjson, so luarocks needn't compile it")
+        self.assertNotIn("openresty", installed)
+
+
 class SafetyNet(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(dir=SCRATCH)
+        self.root = mkdtemp(dir=SCRATCH)
         self.mc = os.path.join(self.root, "mailcow")
         os.makedirs(os.path.join(self.mc, "data/conf/postfix"))
         os.makedirs(os.path.join(self.mc, "data/assets/ssl"))
@@ -210,7 +281,7 @@ if __name__ == "__main__":
 class MailcowPortFix(unittest.TestCase):
     """Up to 0.3.9 the edge put mailcow on HTTP_PORT=8081, which mailcow uses internally."""
     def setUp(self):
-        self.root = tempfile.mkdtemp(dir=SCRATCH)
+        self.root = mkdtemp(dir=SCRATCH)
         self.mc = os.path.join(self.root, "mailcow")
         self.ngx = os.path.join(self.root, "ngx")
         os.makedirs(self.mc)
@@ -264,7 +335,7 @@ class Uninstall(unittest.TestCase):
            "SKIP_LETS_ENCRYPT=y\nSKIP_CLAMD=y\nAPI_KEY=abcdefabcdefabcdefabcdefabcdef\nAPI_ALLOW_FROM=127.0.0.1,::1,172.22.1.1\nADDITIONAL_SAN=cowsec.example.org\n")
 
     def setUp(self):
-        self.root = tempfile.mkdtemp(dir=SCRATCH)
+        self.root = mkdtemp(dir=SCRATCH)
         self.mc = os.path.join(self.root, "mailcow")
         self.ngx = os.path.join(self.root, "ngx")
         self.cs = os.path.join(self.root, "crowdsec")

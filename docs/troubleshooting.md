@@ -76,8 +76,12 @@ CrowdSec 1.7+ stops at startup if it can't sign in to its central API. Check DNS
 
 mailcow needs Docker CE 24 or newer, and Debian's `docker.io` package is older. Remove it first with `sudo apt remove docker.io`. CowSec then installs Docker CE from Docker's own repository.
 
-## Debian 13: "OpenResty packages can be verified" warns, or the edge step fails
+## Debian 13: why the edge is nginx rather than OpenResty
 
 Debian 13's apt checks repository signatures with `sqv`, which has rejected keys bound with SHA-1 since 1 February 2026. OpenResty's repository key still is ([openresty#1072](https://github.com/openresty/openresty/issues/1072)), so apt refuses OpenResty's packages.
 
-CowSec doesn't weaken apt's signature policy, because that would affect every repository on the server. On Debian 13 the wizard leaves the OpenResty edge and AppSec WAF off; CrowdSec, the firewall bouncer, the ban policy, mailcow management and the console install as normal. Because the edge is also what serves DNS-01 certificates and LAN or internet access to the console, the wizard uses mailcow's own Let's Encrypt certificates and makes the console reachable from the server itself; open it through an SSH tunnel or a Cloudflare Tunnel (see [access](access.md)). Once OpenResty publishes a new key, run `sudo cowsec-setup reset-wizard` and turn the edge on. Or use Debian 12 or Ubuntu 22.04/24.04, where the edge works today.
+CowSec doesn't weaken apt's signature policy, because that would affect every repository on the server. On Debian 13 it builds the edge from Debian's own packages instead: `nginx` with Debian's Lua module, plus CrowdSec's `crowdsec-nginx-bouncer`. That bouncer uses the same Lua library as the OpenResty one, so bans, the AppSec WAF and the mail WAF behave the same, and DNS-01 certificates and LAN or internet access to the console work as on the other systems.
+
+Where to look on Debian 13: the config is in `/etc/nginx` (CowSec writes `nginx.conf`, `cowsec_mailcow_proxy.conf` and `sites/cowsec-*.conf`), logs are in `/var/log/nginx`, the service is `nginx` (`journalctl -u nginx`), and the bouncer's settings are in `/etc/crowdsec/bouncers/crowdsec-nginx-bouncer.conf`.
+
+If nginx already serves other websites on the server, the wizard warns you first: the edge replaces nginx's main config (the original is kept as a backup), so those sites would stop. Move them, or turn the edge off.

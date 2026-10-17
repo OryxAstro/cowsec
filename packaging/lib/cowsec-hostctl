@@ -24,7 +24,7 @@ ACTIONS = {
     "reload-crowdsec": [["systemctl", "reload", "crowdsec"]],
     "restart-crowdsec": [["systemctl", "restart", "crowdsec"]],
     "restart-firewall-bouncer": [["systemctl", "restart", "crowdsec-firewall-bouncer"]],
-    "reload-openresty": [["/usr/local/openresty/bin/openresty", "-t", "-q"], ["systemctl", "reload", "openresty"]],
+    "reload-openresty": [[se.EDGE_BIN, "-t", "-q"], ["systemctl", "reload", se.EDGE_SVC]],  # the edge, whichever flavour
     "enable-hub-autoupdate": [["systemctl", "enable", "--now", "crowdsec-hubupdate.timer"]],
     "disable-hub-autoupdate": [["systemctl", "disable", "--now", "crowdsec-hubupdate.timer"]],
     "restart-cowsec": [["systemctl", "--no-block", "restart", "cowsec"]],  # end of setup only
@@ -36,8 +36,9 @@ CS_DIR = "/etc/crowdsec"
 PROFILES = CS_DIR + "/profiles.yaml"
 ABROAD_SCENARIO = CS_DIR + "/scenarios/cowsec-auth-abroad.yaml"
 CS_DB = "/var/lib/crowdsec/data/crowdsec.db"
-PACKAGES = ("cowsec", "crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer", "openresty", "cloudflared")
-UPGRADABLE = ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer")  # --only-upgrade skips what isn't installed
+PACKAGES = ("cowsec", "crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer",
+            "crowdsec-nginx-bouncer", "openresty", "nginx", "cloudflared")
+UPGRADABLE = ("crowdsec", "crowdsec-firewall-bouncer-iptables", "crowdsec-firewall-bouncer-nftables", "crowdsec-openresty-bouncer", "crowdsec-nginx-bouncer")  # --only-upgrade skips what isn't installed
 DEFAULT_POLICY = {
     "homeCountries": ["GB"],
     "abroad": {"enabled": False, "smtp": True, "imap": True, "failures": 2, "windowHours": 24},
@@ -147,7 +148,7 @@ def status():
     if os.path.exists(realip):
         txt = open(realip).read()
         realip_info = {"ranges": txt.count("set_real_ip_from"), "updated": time.strftime("%Y-%m-%d", time.localtime(os.path.getmtime(realip)))}
-    bconf = "/etc/crowdsec/bouncers/crowdsec-openresty-bouncer.conf"
+    bconf = se.EDGE_BOUNCER_CONF
     appsec_cfg = {}
     if os.path.exists(bconf):
         for l in open(bconf):
@@ -158,7 +159,8 @@ def status():
     listening = lambda port: any(re.search(r"[:.]%d\s" % port, l + " ") for l in ss.splitlines())
     rc, ver, _ = run(["cscli", "version"])
     m = re.search(r"version:\s*(\S+)", ver)
-    services = [s for s in ("crowdsec", "crowdsec-firewall-bouncer", "openresty", "chrony", "cloudflared", "cowsec") if unit_exists(s + ".service")]
+    edge = se.EDGE_SVC if se.EDGE_KIND == "openresty" or se.edge_installed() else None  # a stock nginx isn't CowSec's edge
+    services = [s for s in ("crowdsec", "crowdsec-firewall-bouncer", edge, "chrony", "cloudflared", "cowsec") if s and unit_exists(s + ".service")]
     timers = [t for t in ("crowdsec-hubupdate.timer", "cowsec-certs.timer", "cowsec-cert-watch.path", "cowsec-cloudflare-realip.timer") if unit_exists(t)]
     setup = {}
     if os.path.exists(os.path.join(STATE_DIR, "setup.json")):
@@ -185,7 +187,7 @@ def status():
         "mailcow": {"hostname": mc.get("hostname"), "dir": mc.get("dir"), "domains": len(mc.get("domains", []))},
         "mailcowContainers": {"running": sum(1 for c in containers if c["status"].startswith("Up")), "total": len(containers),
                                "unhealthy": [c["name"] for c in containers if "unhealthy" in c["status"] or not c["status"].startswith("Up")]},
-        "setup": {"accessMode": (setup.get("access") or {}).get("mode"), "edge": (setup.get("components") or {}).get("edge"),
+        "setup": {"accessMode": (setup.get("access") or {}).get("mode"), "edge": (setup.get("components") or {}).get("edge"), "edgeKind": se.EDGE_KIND,
                   "certMode": (setup.get("certs") or {}).get("mode")},
     }
 
@@ -406,8 +408,8 @@ JOBS = {
         "apt-get update -q; DEBIAN_FRONTEND=noninteractive apt-get install -y -q --only-upgrade "
         "-o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef " + " ".join(UPGRADABLE) + "; "
         "crowdsec -c /etc/crowdsec/config.yaml -t; systemctl restart crowdsec; sleep 5; systemctl restart crowdsec-firewall-bouncer; "
-        "/usr/local/openresty/bin/openresty -t -q && systemctl reload openresty; sleep 3; "
-        "for s in crowdsec crowdsec-firewall-bouncer openresty; do echo \"$s: $(systemctl is-active $s)\"; systemctl is-active -q $s; done; "
+        + se.EDGE_BIN + " -t -q && systemctl reload " + se.EDGE_SVC + "; sleep 3; "
+        "for s in crowdsec crowdsec-firewall-bouncer " + se.EDGE_SVC + "; do echo \"$s: $(systemctl is-active $s)\"; systemctl is-active -q $s; done; "
         "cscli lapi status"),
     "hub-upgrade": "/usr/bin/cscli hub update && /usr/bin/cscli hub upgrade && systemctl reload crowdsec && /usr/sbin/cowsec-setup appsec-curate --if-default",
     "setup-install": None,  # runs setup_engine.install() (see job_exec)

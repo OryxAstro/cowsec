@@ -1224,7 +1224,7 @@ export default function CrowdSecConsole({ csSubTab }: { csSubTab: CsSubTabType }
                               <div className="space-y-1 text-xs text-slate-400 font-mono">
                                 <p>Type: <strong className="text-slate-200">{b.type || 'bouncer'} {b.version ? `(${b.version})` : ''}</strong></p>
                                 <p>Address: <strong className="text-cyan-300">{b.ip_address || 'local'}</strong></p>
-                                <p>Enforcement: <strong className="text-emerald-400">{/firewall/i.test(b.type || b.name) ? 'Firewall (iptables/ipset)' : /openresty|nginx|lua/i.test(b.type || b.name) ? 'OpenResty edge + AppSec WAF' : 'Remediation component'}</strong></p>
+                                <p>Enforcement: <strong className="text-emerald-400">{/firewall/i.test(b.type || b.name) ? 'Firewall (iptables/ipset)' : /openresty|nginx|lua/i.test(b.type || b.name) ? 'Web edge + AppSec WAF' : 'Remediation component'}</strong></p>
                                 <p>Last Decision Pull: <strong className="text-slate-200">{b.last_pull ? formatRelativeTime(b.last_pull) : 'Streaming live'}</strong></p>
                               </div>
                             </div>
