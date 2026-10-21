@@ -7,12 +7,12 @@ import {
 } from 'lucide-react';
 
 export interface PipelineStep { id: string; title: string; state: 'pending' | 'running' | 'ok' | 'failed'; began?: number; ended?: number }
-export interface ContainerState { service: string; up: boolean; healthy: boolean; starting: boolean; status: string }
+export interface ContainerState { service: string; up: boolean; healthy: boolean; starting: boolean; ready?: boolean; status: string; reason?: string }
 export interface Check { name: string; ok: boolean; detail: string }
 export interface PipelineJob {
   state: 'never' | 'running' | 'ok' | 'failed';
   steps?: PipelineStep[];
-  extra?: { containers?: { containers: ContainerState[]; total: number; up: number }; checks?: Check[]; backup?: string };
+  extra?: { containers?: { containers: ContainerState[]; total: number; up: number; ready?: number }; checks?: Check[]; backup?: string };
   log?: string;
   error?: string;
   started?: string;
@@ -60,24 +60,44 @@ function Node({ step }: { step: PipelineStep; index: number }) {
 
 export function ContainerGrid({ data }: { data: NonNullable<PipelineJob['extra']>['containers'] }) {
   if (!data?.containers?.length) return null;
-  const pct = data.total ? Math.round((data.up / data.total) * 100) : 0;
+  const isReady = (c: ContainerState) => c.ready ?? (c.up && c.healthy && !c.starting);
+  const ready = data.ready ?? data.containers.filter(isReady).length;
+  const waiting = data.containers.filter((c) => !isReady(c));
+  const pct = data.total ? Math.round((ready / data.total) * 100) : 0;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-xs">
         <span className="font-semibold text-slate-300">Bringing the herd back in</span>
-        <span className="font-mono text-slate-400">{data.up}/{data.total} running</span>
+        <span className="font-mono text-slate-400">
+          {ready}/{data.total} ready{waiting.length > 0 ? ` · waiting on ${waiting.map((w) => w.service.replace(/-mailcow$/, '')).join(', ')}` : ''}
+        </span>
       </div>
       <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
         <div className={`h-full bg-gradient-to-r from-sky-500 to-emerald-400 transition-all duration-700 ${pct < 100 ? 'cs-shimmer' : ''}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 cs-stagger">
-        {data.containers.map((c) => (
-          <div key={c.service} className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors duration-500 ${c.up && !c.starting ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200' : 'border-slate-800 bg-slate-900/60 text-slate-400'}`}>
-            <span className={`w-2 h-2 rounded-full shrink-0 ${c.up && !c.starting ? 'bg-emerald-400' : c.up ? 'bg-amber-400 cs-breathe' : 'bg-slate-600 cs-breathe'}`} />
-            <span className="truncate font-mono">{c.service.replace(/-mailcow$/, '')}</span>
-          </div>
-        ))}
+        {data.containers.map((c) => {
+          const ok = isReady(c);
+          return (
+            <div key={c.service} title={c.reason ? `${c.status} — ${c.reason}` : c.status}
+              className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] transition-colors duration-500 ${ok ? 'border-emerald-800 bg-emerald-950/40 text-emerald-200' : !c.healthy ? 'border-rose-800/80 bg-rose-950/40 text-rose-200' : 'border-amber-800/70 bg-amber-950/30 text-amber-200'}`}>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${ok ? 'bg-emerald-400' : !c.healthy ? 'bg-rose-400 cs-breathe' : c.up ? 'bg-amber-400 cs-breathe' : 'bg-slate-600 cs-breathe'}`} />
+              <span className="truncate font-mono">{c.service.replace(/-mailcow$/, '')}</span>
+            </div>
+          );
+        })}
       </div>
+      {waiting.length > 0 && (
+        <div className="rounded-lg border border-amber-800/60 bg-amber-950/25 px-3 py-2 text-xs space-y-1">
+          {waiting.map((w) => (
+            <div key={w.service} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-amber-200">
+              <span className="font-mono font-semibold">{w.service.replace(/-mailcow$/, '')}</span>
+              <span className="text-amber-300/80 font-mono text-[11px]">{w.status}</span>
+              {w.reason && <span className="text-slate-300 font-mono text-[11px] break-all">— {w.reason}</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

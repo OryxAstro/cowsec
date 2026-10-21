@@ -433,3 +433,37 @@ class Uninstall(unittest.TestCase):
             with self.assertRaises(se.StepError):
                 se.uninstall(FakeRunner())
         self.assertFalse(os.path.exists(se.UNINSTALLED), "a failed hand-back must not be marked done")
+
+
+class MailcowUpdateHealth(unittest.TestCase):
+    """During mailcow updates, slow or crash-looping containers surface their log reason and malformed ClamAV DBs self-heal."""
+    def test_surfaces_container_reason_and_heals_malformed_clamd_db(self):
+        clam_log = (
+            "ClamAV 1.4.6 is starting... please wait a moment.\n"
+            "LibClamAV Error: Can't load /var/lib/clamav/phish.ndb: Malformed database\n"
+            "ERROR: Malformed database\n"
+        )
+        states = [
+            {"containers": {"clamd-mailcow": {"name": "mc-clamd-1", "status": "Up 5 seconds (health: starting)"},
+                            "nginx-mailcow": {"name": "mc-nginx-1", "status": "Up 1 minute"}}},
+            {"containers": {"clamd-mailcow": {"name": "mc-clamd-1", "status": "Up 14 seconds (health: starting)"},
+                            "nginx-mailcow": {"name": "mc-nginx-1", "status": "Up 1 minute"}}},
+            {"containers": {"clamd-mailcow": {"name": "mc-clamd-1", "status": "Up 20 seconds (healthy)"},
+                            "nginx-mailcow": {"name": "mc-nginx-1", "status": "Up 1 minute"}}},
+        ]
+        r = FakeRunner()
+        events = []
+        with mock.patch.object(se, "find_mailcow", return_value="/opt/mailcow-dockerized"), \
+                mock.patch.object(se, "mailcow_info", side_effect=states), \
+                mock.patch.object(se, "run", return_value=(0, clam_log)), \
+                mock.patch.object(se, "_heal_clamd_db") as heal, \
+                mock.patch.object(se, "mailcow_post_checks", return_value=[{"name": "ok", "ok": True, "detail": ""}]), \
+                mock.patch.object(se, "write"), \
+                mock.patch.object(se.time, "sleep"):
+            se.mailcow_update(r, lambda *a, **kw: events.append((a, kw)), {"backup": False})
+        heal.assert_called_once_with("mc-clamd-1", "/var/lib/clamav/phish.ndb")
+        logged = "\n".join(r.lines)
+        self.assertIn("malformed ClamAV signature file (phish.ndb)", logged)
+        self.assertIn("waiting on clamd-mailcow", logged)
+        self.assertIn("all 2 containers ready", logged)
+

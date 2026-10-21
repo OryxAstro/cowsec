@@ -2791,15 +2791,63 @@ def crowdsec_upgrade(r, progress):
     r.log("=== CrowdSec upgraded")
 
 
-def mailcow_containers():
+_RE_LOG_NOISE = re.compile(r"^\s*(?:\|+|\++|-+|File:|Size:|Device:|Access:|Modify:|Change:)\s*")
+_RE_LOG_HINT = re.compile(r"(?:ERROR|Error|FATAL|Fatal|Can't load|Malformed|died|failed|denied|refused|starting\.\.\.)", re.I)
+_RE_CLAM_BAD_DB = re.compile(r"Can't load (/var/lib/clamav/([A-Za-z0-9_.-]+\.(?:ndb|hdb|ldb|cdb|fp|ftm|ign2|cld|cvd))):\s*Malformed database")
+
+
+def _heal_clamd_db(container_name, bad_db):
+    """Remove a malformed ClamAV signature file from the container's /var/lib/clamav volume even if it is mid-restart."""
+    base = os.path.basename(bad_db)
+    rc, mnt = run(["docker", "inspect", "-f", '{{range .Mounts}}{{if eq .Destination "/var/lib/clamav"}}{{.Source}}{{end}}{{end}}', container_name])
+    mnt = (mnt or "").strip()
+    if rc == 0 and mnt and os.path.isdir(mnt):
+        target = os.path.join(mnt, base)
+        if os.path.exists(target):
+            os.remove(target)
+    run(["docker", "exec", container_name, "rm", "-f", "/var/lib/clamav/" + base])
+    run(["docker", "restart", container_name])
+
+
+def _container_reason(name):
+    """Pull a short human-readable reason from the container's recent logs when it's slow or failing."""
+    rc, out = run(["docker", "logs", "--tail", "30", name])
+    lines = [l.strip() for l in (out or "").splitlines() if l.strip() and not _RE_LOG_NOISE.match(l)]
+    if not lines:
+        return "", None
+    bad_db = None
+    for l in reversed(lines):
+        m = _RE_CLAM_BAD_DB.search(l)
+        if m:
+            bad_db = m.group(1)
+            break
+    for l in reversed(lines):
+        if _RE_LOG_HINT.search(l):
+            return l[-160:], bad_db
+    return lines[-1][-160:], bad_db
+
+
+def mailcow_containers(with_reasons=False):
     """Container states straight from Docker (works while mailcow's API is down mid-update)."""
     info = mailcow_info()
     out = []
     for svc, c in sorted((info.get("containers") or {}).items()):
         st = c["status"]
-        out.append({"service": svc, "name": c["name"], "up": st.startswith("Up"), "healthy": "unhealthy" not in st,
-                    "starting": "starting" in st, "status": st})
-    return {"containers": out, "total": len(out), "up": sum(1 for c in out if c["up"])}
+        up = st.startswith("Up")
+        healthy = "unhealthy" not in st
+        starting = "starting" in st or st.startswith("Restarting")
+        ready = up and healthy and not starting
+        item = {"service": svc, "name": c["name"], "up": up, "healthy": healthy,
+                "starting": starting, "ready": ready, "status": st}
+        if with_reasons and not ready:
+            reason, bad_db = _container_reason(c["name"])
+            if reason:
+                item["reason"] = reason
+            if bad_db:
+                item["badDb"] = bad_db
+        out.append(item)
+    return {"containers": out, "total": len(out), "up": sum(1 for c in out if c["up"]),
+            "ready": sum(1 for c in out if c["ready"])}
 
 
 def mailcow_post_checks(r, ctx_certs=True):
@@ -2901,14 +2949,31 @@ def mailcow_update(r, progress, opts):
         elif sid == "update":
             r.sh(["./update.sh", "--force", "--skip-ping-check"], cwd=mc, timeout=3600)
         elif sid == "health":
-            for _ in range(90):
-                c = mailcow_containers()
+            last_summary = ""
+            last_log_at = 0
+            healed_dbs = set()
+            for attempt in range(90):
+                c = mailcow_containers(with_reasons=(attempt >= 1))
                 progress(sid, "running", containers=c)
-                if c["total"] and c["up"] == c["total"] and not any(x["starting"] for x in c["containers"]):
+                waiting = [x for x in c["containers"] if not x.get("ready", x["up"] and x["healthy"] and not x["starting"])]
+                if c["total"] and not waiting:
+                    r.log("all %d containers ready" % c["total"])
                     break
+                for w in waiting:
+                    bad_db = w.get("badDb")
+                    if bad_db and bad_db not in healed_dbs:
+                        healed_dbs.add(bad_db)
+                        r.log("%s has a malformed ClamAV signature file (%s); removing it and restarting container" % (w["service"], os.path.basename(bad_db)))
+                        _heal_clamd_db(w["name"], bad_db)
+                parts = ["%s (%s%s)" % (w["service"], w["status"], " — " + w["reason"] if w.get("reason") else "") for w in waiting]
+                summary = "%d/%d ready; waiting on %s" % (c.get("ready", 0), c["total"], ", ".join(parts))
+                if attempt >= 1 and (summary != last_summary or attempt - last_log_at >= 6):
+                    r.log(summary)
+                    last_summary = summary
+                    last_log_at = attempt
                 time.sleep(5)
             else:
-                raise StepError("not all containers came back within 7 minutes")
+                raise StepError("not all containers came back within 7 minutes (%s)" % (last_summary or "timed out"))
         elif sid == "checks":
             res = mailcow_post_checks(r)
             progress(sid, "running", checks=res)
