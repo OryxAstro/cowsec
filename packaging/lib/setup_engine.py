@@ -187,8 +187,59 @@ def os_release():
     return d.get("ID", ""), d.get("VERSION_ID", ""), d.get("VERSION_CODENAME", "")
 
 
-def ipv6_enabled():
-    return os.path.exists("/proc/net/if_inet6") and os.path.getsize("/proc/net/if_inet6") > 0 if os.path.exists("/proc/net/if_inet6") else False
+def ipv6_enabled(inet6="/proc/net/if_inet6", disabled="/proc/sys/net/ipv6/conf/all/disable_ipv6"):
+    """Whether this server has IPv6 to offer: the kernel has it on and a real interface has a
+    global address. /proc files always report a size of 0, so their contents are read: each line
+    of if_inet6 is address, interface index, prefix length, scope (00 = global), flags, name."""
+    try:
+        if open(disabled).read().strip() == "1":
+            return False
+    except OSError:
+        pass
+    try:
+        lines = open(inet6).read().splitlines()
+    except OSError:
+        return False
+    for line in lines:
+        f = line.split()
+        if len(f) >= 6 and f[3] == "00" and f[5] != "lo" and not f[0].startswith("fe80"):
+            return True
+    return False
+
+
+def fix_ipv6_listen(r):
+    """Let the edge answer on IPv6 too. Up to 0.4.2 the IPv6 check always said no (it read the size
+    of a /proc file, which is always 0), so the edge's sites only listened on IPv4. Adds the missing
+    `listen [::]:` beside each `listen` in CowSec's own sites, tests the config and reloads; puts the
+    files back if the test fails."""
+    if not ipv6_enabled():
+        return {"changed": False, "reason": "this server has no global IPv6 address"}
+    sites = [f for f in (NGX + "/sites/cowsec-mailcow.conf", NGX + "/sites/cowsec-console.conf") if os.path.exists(f)]
+    if not sites:
+        return {"changed": False, "reason": "the edge isn't set up"}
+    before = {f: open(f).read() for f in sites}
+    changed = []
+    for f, text in before.items():
+        out, added = [], False
+        lines = text.splitlines(keepends=True)
+        for i, line in enumerate(lines):
+            out.append(line)
+            m = re.match(r"^(\s*)listen (\d+)([^;]*);\s*$", line)
+            if m and not (i + 1 < len(lines) and re.match(r"^\s*listen \[::\]:%s\b" % m.group(2), lines[i + 1])):
+                out.append("%slisten [::]:%s%s;\n" % (m.group(1), m.group(2), m.group(3)))
+                added = True
+        if added:
+            write(f, "".join(out), r=r)
+            changed.append(os.path.basename(f))
+    if not changed:
+        return {"changed": False, "reason": "already listening on IPv6"}
+    if r.sh([EDGE_BIN, "-t", "-q"], check=False)[0] != 0:
+        for f, text in before.items():
+            write(f, text, r=r, keep_backup=False)
+        raise StepError("the edge's configuration test failed with IPv6 listeners, so nothing was changed")
+    r.sh(["systemctl", "reload", EDGE_SVC], check=False)
+    r.log("the edge now also answers on IPv6 (%s)" % ", ".join(changed))
+    return {"changed": True, "sites": changed}
 
 
 def download(url, dest, sha256=None, timeout=120):

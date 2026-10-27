@@ -13,6 +13,7 @@
   cowsec-setup restore-mailcow put mailcow's settings and certificates back as they were before CowSec
   cowsec-setup appsec-curate   rebuild the mail WAF (mail-stack rules block, the rest watch for scanners)
   cowsec-setup fix-mailcow-port  move mailcow's local web port off 8081 (installs before 0.3.10)
+  cowsec-setup fix-ipv6-listen  let the edge answer on IPv6 (installs up to 0.4.2 never did)
   cowsec-setup uninstall      hand mailcow back to its own settings and remove everything CowSec added
   cowsec-setup migrate-legacy  take over a hand-installed CowSec (run automatically by the package)
 """
@@ -164,6 +165,12 @@ def uninstall(yes):
     print("  CrowdSec, its bouncers, the edge's web server (OpenResty or nginx) and cloudflared stay installed; remove them with apt if you want.")
 
 
+def fix_ipv6_listen():
+    res = se.fix_ipv6_listen(se.Runner(echo=True))
+    if not res["changed"]:
+        print("edge IPv6: %s" % res["reason"])
+
+
 def fix_mailcow_port():
     res = se.fix_mailcow_http_port(se.Runner(echo=True))
     if not res["changed"]:
@@ -217,7 +224,7 @@ def main():
     a.add_argument("--hostname"); a.add_argument("--tunnel-token")
     sub.add_parser("reset-wizard"); sub.add_parser("revert-edge")
     rm = sub.add_parser("restore-mailcow"); rm.add_argument("--from", dest="src"); rm.add_argument("--yes", action="store_true")
-    ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy"); sub.add_parser("fix-mailcow-port")
+    ac = sub.add_parser("appsec-curate"); ac.add_argument("--if-default", action="store_true"); sub.add_parser("status"); sub.add_parser("mailcow-api"); sub.add_parser("migrate-legacy"); sub.add_parser("fix-mailcow-port"); sub.add_parser("fix-ipv6-listen")
     un = sub.add_parser("uninstall"); un.add_argument("--yes", action="store_true")
     args = p.parse_args()
     need_root()
@@ -244,6 +251,8 @@ def main():
             migrate_legacy()
         elif args.cmd == "fix-mailcow-port":
             fix_mailcow_port()
+        elif args.cmd == "fix-ipv6-listen":
+            fix_ipv6_listen()
         elif args.cmd == "uninstall":
             uninstall(args.yes)
     except se.StepError as e:

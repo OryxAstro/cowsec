@@ -9,6 +9,8 @@ if [ "$1" = "configure" ]; then
     /usr/sbin/cowsec-setup appsec-curate --if-default || echo "cowsec: mail WAF not applied; see 'cowsec-setup appsec-curate'" >&2
     # up to 0.3.9 the edge put mailcow's web server on 8081, which clashes with mailcow's internal lookups
     /usr/sbin/cowsec-setup fix-mailcow-port || echo "cowsec: could not move mailcow's web port; see 'cowsec-setup fix-mailcow-port'" >&2
+    # up to 0.4.2 the IPv6 check always said no, so the edge never listened on IPv6
+    /usr/sbin/cowsec-setup fix-ipv6-listen || echo "cowsec: could not add IPv6 to the edge; see 'cowsec-setup fix-ipv6-listen'" >&2
     systemctl daemon-reload >/dev/null 2>&1 || true
     systemctl enable cowsec >/dev/null 2>&1 || true
     systemctl restart cowsec >/dev/null 2>&1 || true

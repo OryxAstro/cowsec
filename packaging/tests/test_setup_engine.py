@@ -467,3 +467,74 @@ class MailcowUpdateHealth(unittest.TestCase):
         self.assertIn("waiting on clamd-mailcow", logged)
         self.assertIn("all 2 containers ready", logged)
 
+
+
+class IPv6(unittest.TestCase):
+    """The IPv6 check reads /proc's contents: those files always report a size of 0 (issue #2)."""
+    def files(self, inet6, disabled="0"):
+        d = mkdtemp(dir=SCRATCH)
+        a, b = os.path.join(d, "if-inet6"), os.path.join(d, "disable")
+        with open(a, "w") as f:
+            f.write(inet6)
+        with open(b, "w") as f:
+            f.write(disabled + "\n")
+        return a, b
+
+    # the reporter's server: a global /124 on a USB-named interface, plus loopback and link-local
+    HOSTING_DE = ("00000000000000000000000000000001 01 80 10 80       lo\n"
+                  "2a0017d8010000000000000000000abc 02 7c 00 80 enx1a0135792d10\n"
+                  "fe80000000000000180135fffe792d10 02 40 20 80 enx1a0135792d10\n")
+
+    def test_global_address_found(self):
+        self.assertTrue(se.ipv6_enabled(*self.files(self.HOSTING_DE)))
+
+    def test_only_loopback_and_link_local(self):
+        self.assertFalse(se.ipv6_enabled(*self.files("00000000000000000000000000000001 01 80 10 80       lo\n"
+                                                     "fe80000000000000180135fffe792d10 02 40 20 80     eth0\n")))
+
+    def test_switched_off_in_the_kernel(self):
+        self.assertFalse(se.ipv6_enabled(*self.files(self.HOSTING_DE, disabled="1")))
+
+    def test_no_ipv6_at_all(self):
+        self.assertFalse(se.ipv6_enabled(os.path.join(SCRATCH, "missing"), os.path.join(SCRATCH, "missing-too")))
+
+    def test_proc_files_report_size_zero(self):
+        if os.path.exists("/proc/net/if_inet6") and open("/proc/net/if_inet6").read():
+            self.assertEqual(os.path.getsize("/proc/net/if_inet6"), 0, "why the old size check always said no")
+
+    def test_fix_adds_ipv6_listeners_once(self):
+        se.use_edge("openresty")
+        d = mkdtemp(dir=SCRATCH)
+        os.makedirs(os.path.join(d, "sites"))
+        site = os.path.join(d, "sites", "cowsec-mailcow.conf")
+        with open(site, "w") as f:
+            f.write("server {\n    listen 80 default_server;\n    server_name _;\n}\n"
+                    "server {\n    listen 443 ssl default_server;\n    server_name _;\n}\n")
+        r = FakeRunner()
+        with mock.patch.object(se, "NGX", d), mock.patch.object(se, "ipv6_enabled", return_value=True):
+            res = se.fix_ipv6_listen(r)
+            self.assertTrue(res["changed"])
+            text = read(site)
+            self.assertIn("    listen 80 default_server;\n    listen [::]:80 default_server;\n", text)
+            self.assertIn("    listen 443 ssl default_server;\n    listen [::]:443 ssl default_server;\n", text)
+            self.assertIn([se.EDGE_BIN, "-t", "-q"], r.cmds, "the config is tested before reloading")
+            self.assertFalse(se.fix_ipv6_listen(FakeRunner())["changed"], "running it again changes nothing")
+
+    def test_fix_puts_files_back_when_the_test_fails(self):
+        se.use_edge("openresty")
+        d = mkdtemp(dir=SCRATCH)
+        os.makedirs(os.path.join(d, "sites"))
+        site = os.path.join(d, "sites", "cowsec-console.conf")
+        original = "server {\n    listen 443 ssl;\n}\n"
+        with open(site, "w") as f:
+            f.write(original)
+        r = FakeRunner()
+        r.sh = lambda cmd, **kw: (1, "") if cmd[-1] == "-q" else (0, "")
+        with mock.patch.object(se, "NGX", d), mock.patch.object(se, "ipv6_enabled", return_value=True):
+            with self.assertRaises(se.StepError):
+                se.fix_ipv6_listen(r)
+        self.assertEqual(read(site), original)
+
+    def test_fix_does_nothing_without_ipv6(self):
+        with mock.patch.object(se, "ipv6_enabled", return_value=False):
+            self.assertFalse(se.fix_ipv6_listen(FakeRunner())["changed"])
