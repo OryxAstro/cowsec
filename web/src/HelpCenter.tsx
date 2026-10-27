@@ -5,7 +5,7 @@ import {
   BookOpen, Box, ChevronRight, Cloud, Coffee, Copy, Cpu, ExternalLink, Flame, Globe, KeyRound, Library, LifeBuoy, Lock, Mail, Search,
   Server, Shield, ShieldCheck, Sparkles, Terminal, Wheat, Wrench,
 } from 'lucide-react';
-import CowSecLogo, { currentLook, LOOKS, type Look } from './CowSecLogo';
+import CowSecLogo, { BESSIE, currentLook, LOOKS } from './CowSecLogo';
 import architecture from '../../docs/assets/architecture.svg';
 import banLadder from '../../docs/assets/ban-ladder.svg';
 import accessModes from '../../docs/assets/access-modes.svg';
@@ -13,12 +13,6 @@ import certFlow from '../../docs/assets/cert-flow.svg';
 import securityLayers from '../../docs/assets/security-layers.svg';
 import upgradeFlow from '../../docs/assets/upgrade-flow.svg';
 import mailcowFlow from '../../docs/assets/mailcow-flow.svg';
-
-// Bessie's illustrated looks for the About page, 512px copies of docs/assets/mascot/bessie-*.png
-const BESSIE = Object.fromEntries(
-  Object.entries(import.meta.glob<string>('./mascot/bessie-*.webp', { eager: true, query: '?url', import: 'default' }))
-    .map(([path, url]) => [path.replace(/^.*bessie-|\.webp$/g, ''), url]),
-) as Record<Look, string>;
 
 type Block = string | { code: string } | { list: string[] } | { img: string; alt: string } | { tip: string };
 interface Article { id: string; title: string; summary: string; body: Block[]; group?: string }

@@ -55,7 +55,7 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
   };
 
   return (
-    <Card title="CowSec" icon={<CowSecLogo className="w-5 h-5" />}
+    <Card title="CowSec" icon={<CowSecLogo vector className="w-5 h-5" />}
       right={<button onClick={() => load(true)} disabled={checking || busy} className={`${btn} text-sky-300 border border-sky-800 hover:bg-sky-950`}>
         <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} /> Check for a new release</button>}>
       {!rel ? <p className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /> Checking…</p> : (

@@ -138,7 +138,14 @@ export function currentLook(): Look {
   return p === 'auto' ? seasonalLook() : p;
 }
 
-export default function CowSecLogo({ className = 'w-11 h-11 drop-shadow-[0_4px_12px_rgba(56,189,248,0.4)]', look }: { className?: string; look?: Look }) {
+/** Bessie's illustrated looks: 512px copies of docs/assets/mascot/bessie-*.png. */
+export const BESSIE = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('./mascot/bessie-*.webp', { eager: true, query: '?url', import: 'default' }))
+    .map(([path, url]) => [path.replace(/^.*bessie-|\.webp$/g, ''), url]),
+) as Record<Look, string>;
+
+/** The illustrated Bessie in a tile; `vector` draws the original flat cow, which stays sharp at icon sizes. */
+export default function CowSecLogo({ className = 'w-11 h-11 drop-shadow-[0_4px_12px_rgba(56,189,248,0.4)]', look, vector }: { className?: string; look?: Look; vector?: boolean }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const [, bump] = useState(0);
   useEffect(() => {
@@ -153,5 +160,12 @@ export default function CowSecLogo({ className = 'w-11 h-11 drop-shadow-[0_4px_1
     return svg.replace(/id="([^"]+)"/g, `id="${uid}$1"`).replace(/url\(#([^)]+)\)/g, `url(#${uid}$1)`);
   }, [pref, uid]);
   const name = LOOKS.find((x) => x.id === pref)?.name ?? 'CowSec';
-  return <svg viewBox="0 0 64 64" className={className} fill="none" role="img" aria-label={`Bessie the Bouncer: ${name}`} dangerouslySetInnerHTML={{ __html: markup }} />;
+  if (vector) return <svg viewBox="0 0 64 64" className={className} fill="none" role="img" aria-label={`Bessie the Bouncer: ${name}`} dangerouslySetInnerHTML={{ __html: markup }} />;
+  return (
+    <span role="img" aria-label={`Bessie the Bouncer: ${name}`} className={`relative inline-block shrink-0 overflow-hidden rounded-[25%] ${className}`}
+      style={{ background: 'linear-gradient(135deg, var(--mascot-tile-a), var(--mascot-tile-b))' }}>
+      <img src={BESSIE[pref]} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain" />
+      <span className="absolute inset-0 rounded-[inherit]" style={{ boxShadow: 'inset 0 0 0 1.5px var(--mascot-rim)' }} />
+    </span>
+  );
 }
