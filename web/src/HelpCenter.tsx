@@ -5,7 +5,7 @@ import {
   BookOpen, Box, ChevronRight, Cloud, Coffee, Copy, Cpu, ExternalLink, Flame, Globe, KeyRound, Library, LifeBuoy, Lock, Mail, Search,
   Server, Shield, ShieldCheck, Sparkles, Terminal, Wheat, Wrench,
 } from 'lucide-react';
-import CowSecLogo from './CowSecLogo';
+import CowSecLogo, { currentLook, LOOKS, type Look } from './CowSecLogo';
 import architecture from '../../docs/assets/architecture.svg';
 import banLadder from '../../docs/assets/ban-ladder.svg';
 import accessModes from '../../docs/assets/access-modes.svg';
@@ -13,6 +13,12 @@ import certFlow from '../../docs/assets/cert-flow.svg';
 import securityLayers from '../../docs/assets/security-layers.svg';
 import upgradeFlow from '../../docs/assets/upgrade-flow.svg';
 import mailcowFlow from '../../docs/assets/mailcow-flow.svg';
+
+// Bessie's illustrated looks for the About page, 512px copies of docs/assets/mascot/bessie-*.png
+const BESSIE = Object.fromEntries(
+  Object.entries(import.meta.glob<string>('./mascot/bessie-*.webp', { eager: true, query: '?url', import: 'default' }))
+    .map(([path, url]) => [path.replace(/^.*bessie-|\.webp$/g, ''), url]),
+) as Record<Look, string>;
 
 type Block = string | { code: string } | { list: string[] } | { img: string; alt: string } | { tip: string };
 interface Article { id: string; title: string; summary: string; body: Block[]; group?: string }
@@ -283,6 +289,7 @@ const STACK: [string, StackItem[]][] = [
 ];
 
 export function AboutPanel() {
+  const look = currentLook();
   const [version, setVersion] = useState<string | null>(null);
   const [pkgs, setPkgs] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -302,7 +309,7 @@ export function AboutPanel() {
         <div className="relative flex flex-col items-center gap-4">
           <div className="relative">
             <div className="absolute -inset-4 rounded-[2rem] bg-gradient-to-br from-emerald-400/30 via-sky-400/20 to-indigo-500/30 blur-xl cs-breathe" />
-            <CowSecLogo className="relative w-28 h-28 cs-float drop-shadow-[0_12px_32px_rgba(56,189,248,0.4)]" />
+            <img src={BESSIE[look]} alt={`Bessie the Bouncer, ${LOOKS.find((l) => l.id === look)?.name}`} className="relative w-40 h-40 object-contain cs-float drop-shadow-[0_12px_32px_rgba(56,189,248,0.4)]" />
           </div>
           <div>
             <h2 className="text-3xl font-bold text-white tracking-tight">CowSec</h2>

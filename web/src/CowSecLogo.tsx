@@ -132,6 +132,11 @@ export function setMascotPreference(v: Look | 'auto') {
   }
   window.dispatchEvent(new Event('cowsec-mascot'));
 }
+/** The look on show now: the pinned one, or the calendar's. */
+export function currentLook(): Look {
+  const p = mascotPreference();
+  return p === 'auto' ? seasonalLook() : p;
+}
 
 export default function CowSecLogo({ className = 'w-11 h-11 drop-shadow-[0_4px_12px_rgba(56,189,248,0.4)]', look }: { className?: string; look?: Look }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -141,7 +146,7 @@ export default function CowSecLogo({ className = 'w-11 h-11 drop-shadow-[0_4px_1
     window.addEventListener('cowsec-mascot', on);
     return () => window.removeEventListener('cowsec-mascot', on);
   }, []);
-  const pref = look ?? (mascotPreference() === 'auto' ? seasonalLook() : (mascotPreference() as Look));
+  const pref = look ?? currentLook();
   const markup = useMemo(() => {
     const l = LOOKS.find((x) => x.id === pref) ?? LOOKS[0];
     const svg = BASE.replace('<defs>', '<defs>' + DEFS) + (CHARMS[l.charm] ?? '') + (HATS[l.hat] ?? '');
