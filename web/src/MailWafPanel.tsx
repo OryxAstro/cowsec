@@ -19,7 +19,7 @@ const short = (n: string) => n.replace(/^crowdsecurity\//, '').replace(/^vpatch-
 // send scanners to the ban list. Dots move along each path.
 function Flow({ block, watch }: { block: number; watch: number }) {
   return (
-    <svg viewBox="0 0 720 150" className="w-full h-auto" role="img" aria-label={`Requests pass ${block} blocking rules on the way to mailcow; ${watch} watching rules check afterwards and ban scanners`}>
+    <svg viewBox="0 0 720 150" className="w-full max-w-[720px] mx-auto block h-auto" role="img" aria-label={`Requests pass ${block} blocking rules on the way to mailcow; ${watch} watching rules check afterwards and ban scanners`}>
       <defs>
         {/* sized to the drawing, not the path: a straight line has no height, and a gradient sized to it never draws */}
         <linearGradient id="mwf-a" gradientUnits="userSpaceOnUse" x1="40" y1="0" x2="680" y2="0"><stop offset="0" stopColor="#38bdf8" /><stop offset="1" stopColor="#34d399" /></linearGradient>
