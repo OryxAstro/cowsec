@@ -426,6 +426,14 @@ func (t *Target) AddDecision(ip, duration, reason, decisionType string) (string,
 
 // DeleteDecision removes a decision by IP or ID
 func (t *Target) DeleteDecision(ip, id string) (string, error) {
+	if id != "" && !regexp.MustCompile(`^[0-9]{1,19}$`).MatchString(id) {
+		return "", fmt.Errorf("decision ID must be a number")
+	}
+	if id == "" && ip != "" && net.ParseIP(ip) == nil {
+		if _, _, err := net.ParseCIDR(ip); err != nil {
+			return "", fmt.Errorf("%q is not an IP address or CIDR range", ip)
+		}
+	}
 	var args []string
 	if id != "" {
 		args = []string{"decisions", "delete", "--id", id}

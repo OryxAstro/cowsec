@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -186,6 +187,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+		// Behind the edge, which always serves the console over HTTPS. Not includeSubDomains:
+		// other sites on the same parent domain aren't ours to pin.
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && net.ParseIP(host).IsLoopback() && r.Header.Get("X-Forwarded-Proto") == "https" {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

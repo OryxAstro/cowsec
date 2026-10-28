@@ -2630,7 +2630,7 @@ def mailcow_da_acl():
 
 def mailcow_footer(domain):
     """A domain's footer from mailcow's database: the API can set it but not read it."""
-    if not re.match(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", domain):
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", domain):
         raise StepError("invalid domain")
     mc = find_mailcow()
     if not mc:
@@ -2655,7 +2655,7 @@ def mailcow_footer(domain):
 
 def mailcow_mta_sts(domain):
     """A domain's MTA-STS policy from mailcow's database (the API can set it but not read it)."""
-    if not re.match(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$", domain):
+    if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+", domain):
         raise StepError("invalid domain")
     mc = find_mailcow()
     if not mc:

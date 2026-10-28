@@ -86,15 +86,19 @@ async function sanitize(p, cfg) {
   const subs = [...(s.domains || []).map((d) => [d, 'example.com']), ...(s.ips || []).map((ip) => [ip, '192.0.2.10'])];
   await p.evaluate((pairs) => {
     const res = pairs.map(([from, to]) => [new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), to]);
-    res.push([/192\.168\.\d+\.\d+/g, '192.0.2.1'], [/\b10\.\d+\.\d+\.\d+\b/g, '192.0.2.2']);
+    res.push([/192\.168\.\d+\.\d+/g, '192.0.2.1'], [/\b10\.\d+\.\d+\.\d+\b/g, '192.0.2.2'],
+      [/\b(?:[A-Z2-7]{4} ){3,}[A-Z2-7]{1,4}\b/g, 'XXXX XXXX XXXX XXXX']); // a TOTP setup key, shown in groups of four
     const fix = (t) => res.reduce((acc, [re, to]) => acc.replace(re, to), t);
     const undo = (window.__undo = []);
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
       if (n.nodeValue) { const o = n.nodeValue, f = fix(o); if (f !== o) { undo.push(() => { n.nodeValue = o; }); n.nodeValue = f; } }
     }
-    document.querySelectorAll('input').forEach((i) => {
+    document.querySelectorAll('input, textarea').forEach((i) => {
       if (i.type !== 'password' && i.value) { const o = i.value; i.value = fix(o); undo.push(() => { i.value = o; }); }
+    });
+    document.querySelectorAll('img[alt="Authenticator QR code"]').forEach((i) => {
+      const o = i.style.filter; i.style.filter = 'blur(12px)'; undo.push(() => { i.style.filter = o; });
     });
   }, subs);
 }
