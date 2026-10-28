@@ -247,6 +247,38 @@ func (s *Store) deleteUserSessions(user string) int {
 	return n
 }
 
+// deleteOtherSessions removes a user's sessions except the one for keepToken.
+func (s *Store) deleteOtherSessions(user, keepToken string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refresh()
+	keep, n := tokenKey(keepToken), 0
+	for k, v := range s.st.Sessions {
+		if v.User == user && k != keep {
+			delete(s.st.Sessions, k)
+			n++
+		}
+	}
+	if n > 0 {
+		_ = s.save()
+	}
+	return n
+}
+
+// countUserSessions counts a user's sessions (including expired ones not yet pruned).
+func (s *Store) countUserSessions(user string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refresh()
+	n := 0
+	for _, v := range s.st.Sessions {
+		if v.User == user {
+			n++
+		}
+	}
+	return n
+}
+
 // pruneSessions drops sessions older than maxAge.
 func (s *Store) pruneSessions(maxAge time.Duration) {
 	s.mu.Lock()

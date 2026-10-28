@@ -11,5 +11,9 @@ func (s *Service) Routes(r chi.Router) {
 	r.Get("/me", s.HandleMe)
 	r.Post("/logout", s.HandleLogout)
 	r.Post("/totp/reset", s.HandleResetTOTP)
+	r.Post("/password", s.HandleChangePassword)
+	r.Post("/totp/begin", s.HandleTOTPBegin)
+	r.Post("/totp/confirm", s.HandleTOTPConfirm)
+	r.Post("/sessions/end-others", s.HandleEndOtherSessions)
 	r.Get("/audit", s.HandleAudit)
 }

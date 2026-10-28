@@ -17,6 +17,8 @@ export interface MeResponse {
   identity: Identity;
   totpEnrolled: boolean;
   idleTimeoutSec: number;
+  sessions?: number;
+  duo?: boolean;
 }
 
 export interface AuthConfig {

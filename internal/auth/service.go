@@ -114,6 +114,7 @@ type Service struct {
 	lastSeen map[string]time.Time // sha256(token) -> last request
 	ipFails  map[string][]time.Time
 	userFail map[string][]time.Time
+	reenrols map[string]*reenrol // user -> authenticator being set up while signed in
 
 	auditMu sync.Mutex
 }
@@ -124,7 +125,7 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("auth state %s: %w", cfg.StatePath, err)
 	}
 	s := &Service{cfg: cfg, store: st, pending: map[string]*pendingLogin{}, lastSeen: map[string]time.Time{},
-		ipFails: map[string][]time.Time{}, userFail: map[string][]time.Time{}}
+		ipFails: map[string][]time.Time{}, userFail: map[string][]time.Time{}, reenrols: map[string]*reenrol{}}
 	st.pruneSessions(cfg.MaxAge)
 	if !cfg.LDAP.Enabled() && len(st.LocalAdminNames()) == 0 {
 		log.Printf("⚠️  auth: no LDAP configured (COWSEC_LDAP_URL/COWSEC_LDAP_BASE_DN) and no local admin; run `cowsec auth local-admin set <name>`")
@@ -595,7 +596,7 @@ func (s *Service) HandleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	_, enrolled := s.store.TOTP(sess.User)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"identity": s.identity(sess), "totpEnrolled": enrolled,
-		"idleTimeoutSec": int(s.cfg.IdleTimeout.Seconds())})
+		"idleTimeoutSec": int(s.cfg.IdleTimeout.Seconds()), "sessions": s.store.countUserSessions(sess.User), "duo": s.cfg.Duo.Enabled()})
 }
 
 func (s *Service) HandleLogout(w http.ResponseWriter, r *http.Request) {
