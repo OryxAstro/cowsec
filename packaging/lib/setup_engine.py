@@ -537,7 +537,8 @@ def restore_mailcow(r, path=None):
 
 # Everything CowSec adds to a server outside its own package, so uninstalling can take it all away.
 COWSEC_UNITS = ("cowsec-certs.timer", "cowsec-certs.service", "cowsec-cert-watch.path", "cowsec-cert-watch.service",
-                "cowsec-netfilter.timer", "cowsec-netfilter.service", "cowsec-cloudflare-realip.timer", "cowsec-cloudflare-realip.service")
+                "cowsec-netfilter.timer", "cowsec-netfilter.service", "cowsec-cloudflare-realip.timer", "cowsec-cloudflare-realip.service",
+                "cowsec-dyndns.timer", "cowsec-dyndns.service")
 COWSEC_FILES = ("/etc/letsencrypt/renewal-hooks/deploy/cowsec-openresty.sh", LIB_DIR + "/cowsec-cloudflare-realip", LIB_DIR + "/lego",
                 "/etc/chrony/conf.d/cowsec-ptp.conf", "/etc/modules-load.d/cowsec-ptp_kvm.conf")
 # the mailcow.conf keys CowSec changes; uninstalling puts back their values from before CowSec
@@ -2480,7 +2481,7 @@ def netfilter_state():
     except Exception:
         st = {}
     return {"mode": st.get("mode", "side-by-side"), "syncTrusted": st.get("syncTrusted", True), "lastSync": st.get("lastSync"),
-            "imported": st.get("imported", 0), "lastError": st.get("lastError")}
+            "imported": st.get("imported", 0), "lastError": st.get("lastError"), "whitelisted": st.get("whitelisted") or []}
 
 
 def f2b_settings(cur):
@@ -2537,10 +2538,15 @@ def netfilter_sync(r=None):
         settings["manage_external"] = want_external
         if st["syncTrusted"]:
             have = [x for x in re.split(r"[\s,;]+", settings["whitelist"]) if x]
-            merged = sorted(set(have) | set(trusted_networks()))
+            trusted = set(trusted_networks())
+            # entries CowSec added before and no longer trusts (a dynamic address that moved on, an
+            # allowlist entry removed); lines the admin typed into netfilter's whitelist stay
+            stale = set(st.get("whitelisted") or []) - trusted
+            merged = sorted((set(have) - stale) | trusted)
             if merged != sorted(set(have)):
                 settings["whitelist"] = "\n".join(merged)
                 changed = True
+            st["whitelisted"] = sorted(trusted)
         if changed:
             mailcow_api("POST", "edit/fail2ban", {"items": ["none"], "attr": settings})
         imported = 0
@@ -2607,6 +2613,184 @@ def netfilter_coordinate(mode, sync_trusted, r):
                 if d.get("scenario") == NETFILTER_REASON:
                     run(["cscli", "decisions", "delete", "--id", str(d["id"])])
     return netfilter_sync(r)
+
+
+# ---------------------------------------------------------------- dynamic DNS in Trusted Herd
+
+DYNDNS_STATE = os.path.join(STATE_DIR, "dyndns.json")
+DYNDNS_TAG = "dyndns:"        # comment on the allowlist entries CowSec keeps for a hostname
+DYNDNS_EXPIRY = 3600          # entries lapse after an hour unless the next check renews them...
+DYNDNS_RENEW = 1800           # ...which it does once less than half an hour is left
+DYNDNS_MAX_HOSTS = 10
+DYNDNS_MAX_PER_FAMILY = 4     # a hijacked or misconfigured record can't allowlist a crowd
+HOSTNAME_RE = re.compile(r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]")
+
+
+def dyndns_state():
+    try:
+        st = json.load(open(DYNDNS_STATE))
+    except Exception:
+        st = {}
+    return {"hosts": st.get("hosts") or [], "history": st.get("history") or []}
+
+
+def dyndns_save(st):
+    write(DYNDNS_STATE, json.dumps(st, indent=1) + "\n", 0o600)
+
+
+def dyndns_timer(on):
+    write("/etc/systemd/system/cowsec-dyndns.service",
+          "[Unit]\nDescription=Keep dynamic DNS hostnames in CowSec's allowlist\nAfter=crowdsec.service network-online.target\n\n"
+          "[Service]\nType=oneshot\nEnvironment=SSH_ORIGINAL_COMMAND=dyndns-sync\nEnvironment=SSH_CLIENT=timer\nExecStart=%s\n" % HOSTCTL)
+    write("/etc/systemd/system/cowsec-dyndns.timer",
+          "[Unit]\nDescription=Check dynamic DNS hostnames every minute (CowSec)\n\n"
+          "[Timer]\nOnBootSec=1min\nOnUnitActiveSec=1min\nAccuracySec=10s\n\n[Install]\nWantedBy=timers.target\n")
+    run(["systemctl", "daemon-reload"])
+    run(["systemctl", "enable" if on else "disable", "--now", "cowsec-dyndns.timer"])
+
+
+def dyndns_resolve(name, v6prefix):
+    """The networks to trust for a hostname: each public IPv4 address, and each public IPv6
+    address widened to its /64 (or kept exact). Raises StepError on anything doubtful."""
+    try:
+        infos = socket.getaddrinfo(name, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as e:
+        raise StepError("doesn't resolve (%s)" % (e.strerror or e))
+    v4, v6, skipped = set(), set(), set()
+    for fam, _, _, _, sa in infos:
+        ip = ipaddress.ip_address(sa[0].split("%")[0])
+        if not ip.is_global or ip.is_multicast:
+            skipped.add(str(ip))
+        elif ip.version == 4:
+            v4.add(ip)
+        else:
+            v6.add(ip)
+    if len(v4) > DYNDNS_MAX_PER_FAMILY or len(v6) > DYNDNS_MAX_PER_FAMILY:
+        raise StepError("points at %d IPv4 and %d IPv6 addresses; more than %d of either looks wrong for a home connection, so none are trusted"
+                        % (len(v4), len(v6), DYNDNS_MAX_PER_FAMILY))
+    if not v4 and not v6:
+        raise StepError("has no public addresses" + (" (only %s)" % ", ".join(sorted(skipped)) if skipped else ""))
+    nets = [str(a) for a in sorted(v4)]
+    nets += sorted({str(ipaddress.ip_network("%s/%d" % (a, v6prefix), strict=False)) if v6prefix == 64 else str(a) for a in v6})
+    return nets
+
+
+def allowlist_items():
+    rc, out = run(["cscli", "allowlists", "inspect", "cowsec", "-o", "json"])
+    if rc != 0:
+        if "not found" in out:
+            return None
+        raise StepError("could not read the allowlist: " + out[-200:])
+    try:
+        return json.loads(out).get("items") or []
+    except ValueError:
+        raise StepError("could not read the allowlist")
+
+
+def seconds_left(expiration):
+    """Seconds until an allowlist entry's expiry ('2026-11-18T00:08:06.371Z'); None if it never expires."""
+    m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", expiration or "")
+    if not m or expiration.startswith("0001-"):
+        return None
+    import calendar
+    return int(calendar.timegm(time.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")) - time.time())
+
+
+def dyndns_sync():
+    """Runs every minute while any hostname is configured: resolves each one and keeps its
+    entries in the allowlist current. Allowlisting lifts CrowdSec's bans on an address by
+    itself; mailcow's netfilter is told to unban it too."""
+    st = dyndns_state()
+    items = allowlist_items()
+    if items is None:
+        rc, out = run(["cscli", "allowlists", "create", "cowsec", "-d", "Managed by CowSec"])
+        if rc != 0:
+            raise StepError("could not create the allowlist: " + out[-200:])
+        items = []
+    managed = {i["value"]: i for i in items if (i.get("description") or "").startswith(DYNDNS_TAG)}
+    manual = {i["value"] for i in items if i["value"] not in managed}
+    now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    want = {}   # value -> hostname
+    keep = set()  # entries of a hostname that failed to resolve: left to lapse on their own
+    for h in st["hosts"]:
+        h["lastChecked"] = now
+        try:
+            nets = dyndns_resolve(h["name"], h.get("v6prefix", 64))
+        except StepError as e:
+            h["error"] = str(e)
+            keep |= {v for v, i in managed.items() if i.get("description") == DYNDNS_TAG + h["name"]}
+            continue
+        h["error"] = None
+        h["addresses"] = nets
+        for n in nets:
+            want.setdefault(n, h["name"])
+    added, removed = [], []
+    for v, i in managed.items():
+        if v in keep:
+            continue
+        renew = v in want and ((i.get("description") != DYNDNS_TAG + want[v]) or (seconds_left(i.get("expiration")) or 0) < DYNDNS_RENEW)
+        if v not in want or renew:
+            run(["cscli", "allowlists", "remove", "cowsec", v])
+            if v not in want:
+                removed.append(v)
+    for v, name in want.items():
+        if v in manual:
+            continue  # already trusted by hand, with no expiry: leave it be
+        i = managed.get(v)
+        if i and i.get("description") == DYNDNS_TAG + name and (seconds_left(i.get("expiration")) or 0) >= DYNDNS_RENEW:
+            continue
+        rc, out = run(["cscli", "allowlists", "add", "cowsec", v, "-e", "%ds" % DYNDNS_EXPIRY, "-d", DYNDNS_TAG + name])
+        if rc != 0:
+            raise StepError("could not allowlist %s: %s" % (v, out[-200:]))
+        if v not in managed:
+            added.append(v)
+    if added or removed:
+        st["history"] = ([{"time": now, "added": added, "removed": removed,
+                           "hosts": sorted({want[v] for v in added} | {(managed[v].get("description") or "")[len(DYNDNS_TAG):] for v in removed})}]
+                         + st["history"])[:20]
+        if added and os.path.exists(ETC_DIR + "/mailcow.env"):
+            for v in added:  # netfilter keeps its own bans; the next netfilter sync whitelists the address
+                try:
+                    mailcow_api("POST", "edit/fail2ban", {"items": [v if "/" in v else v + ("/128" if ":" in v else "/32")], "attr": {"action": "unban"}})
+                except Exception:
+                    pass
+    dyndns_save(st)
+    return dyndns_list()
+
+
+def dyndns_list():
+    st = dyndns_state()
+    nf = netfilter_state() if os.path.exists(NETFILTER_STATE) else None
+    return {"hosts": st["hosts"], "history": st["history"], "maxHosts": DYNDNS_MAX_HOSTS, "expiryMinutes": DYNDNS_EXPIRY // 60,
+            "netfilterSync": bool(nf and nf["syncTrusted"])}
+
+
+def dyndns_add(name, v6prefix):
+    name = (name or "").strip().lower().rstrip(".")
+    if not HOSTNAME_RE.fullmatch(name):
+        raise StepError("enter a hostname like home.example-dyndns.org")
+    if v6prefix not in (64, 128):
+        raise StepError("IPv6 is trusted as the /64 or the exact address (128)")
+    st = dyndns_state()
+    if any(h["name"] == name for h in st["hosts"]):
+        raise StepError("%s is already in the list" % name)
+    if len(st["hosts"]) >= DYNDNS_MAX_HOSTS:
+        raise StepError("up to %d hostnames" % DYNDNS_MAX_HOSTS)
+    dyndns_resolve(name, v6prefix)  # refuse a name that doesn't resolve to something sensible now
+    st["hosts"].append({"name": name, "v6prefix": v6prefix, "added": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "addresses": [], "error": None})
+    dyndns_save(st)
+    dyndns_timer(True)
+    return dyndns_sync()
+
+
+def dyndns_remove(name):
+    st = dyndns_state()
+    st["hosts"] = [h for h in st["hosts"] if h["name"] != name]
+    dyndns_save(st)
+    out = dyndns_sync()  # takes its entries out of the allowlist
+    if not st["hosts"]:
+        dyndns_timer(False)
+    return out
 
 
 def mailcow_da_acl():

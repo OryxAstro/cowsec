@@ -256,7 +256,7 @@ Choose how the two guards work together:
 | **CrowdSec enforces** | netfilter keeps detecting but switches to mailcow's *manage externally* mode. Every minute CowSec turns its active bans and blacklist into CrowdSec decisions (reason `mailcow netfilter`). Every ban then shows in **Banned from the Herd**, under one firewall. Switching back hands enforcement back to netfilter and removes the imported decisions. |
 
 In both modes:
-- **Keep trusted lists in step** adds your **Trusted Herd** allowlist and local network to netfilter's whitelist, so neither guard bans them.
+- **Keep trusted lists in step** adds your **Trusted Herd** allowlist (dynamic DNS addresses included) and local network to netfilter's whitelist, so neither guard bans them. Entries CowSec added are taken out again once they're no longer trusted; lines you typed into netfilter's whitelist yourself are left alone.
 - Lifting a ban in **Banned from the Herd** lifts it in netfilter too.
 
 <p align="center"><img src="img/console/netfilter.webp" alt="Guard Dog: mailcow netfilter and CrowdSec" width="900"></p>

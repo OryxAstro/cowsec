@@ -538,3 +538,144 @@ class IPv6(unittest.TestCase):
     def test_fix_does_nothing_without_ipv6(self):
         with mock.patch.object(se, "ipv6_enabled", return_value=False):
             self.assertFalse(se.fix_ipv6_listen(FakeRunner())["changed"])
+
+
+class FakeAllowlist:
+    """cscli's allowlist commands against an in-memory list; every other command succeeds."""
+    def __init__(self, items=None):
+        self.items = {i["value"]: i for i in (items or [])}
+        self.cmds = []
+
+    def __call__(self, cmd, timeout=60):
+        self.cmds.append(cmd)
+        if cmd[:3] == ["cscli", "allowlists", "inspect"]:
+            return 0, json.dumps({"items": list(self.items.values())})
+        if cmd[:3] == ["cscli", "allowlists", "add"]:
+            exp = cmd[cmd.index("-e") + 1]
+            self.items[cmd[4]] = {"value": cmd[4], "description": cmd[cmd.index("-d") + 1],
+                                  "expiration": self.later(int(exp.rstrip("s")))}
+            return 0, "added"
+        if cmd[:3] == ["cscli", "allowlists", "remove"]:
+            self.items.pop(cmd[4], None)
+            return 0, "removed"
+        return 0, ""
+
+    @staticmethod
+    def later(seconds):
+        import time
+        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + seconds))
+
+
+def addrinfo(*ips):
+    import socket
+    return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 0)) for ip in ips]
+
+
+class DynDNS(unittest.TestCase):
+    def setUp(self):
+        self.dir = mkdtemp()
+        os.makedirs(os.path.join(self.dir, "etc"))
+        open(os.path.join(self.dir, "etc", "mailcow.env"), "w").close()
+        self.unbans = []
+        self.patches = [mock.patch.multiple(se, DYNDNS_STATE=os.path.join(self.dir, "dyndns.json"), ETC_DIR=os.path.join(self.dir, "etc"),
+                                            NETFILTER_STATE=os.path.join(self.dir, "netfilter.json")),
+                        mock.patch.object(se, "dyndns_timer"),
+                        mock.patch.object(se, "mailcow_api", side_effect=lambda m, p, b=None: self.unbans.append(b["items"][0]))]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def sync(self, cscli, *ips):
+        with mock.patch.object(se, "run", cscli), mock.patch.object(se.socket, "getaddrinfo", return_value=addrinfo(*ips)):
+            return se.dyndns_sync()
+
+    def add(self, cscli, name, *ips, v6prefix=64):
+        with mock.patch.object(se, "run", cscli), mock.patch.object(se.socket, "getaddrinfo", return_value=addrinfo(*ips)):
+            return se.dyndns_add(name, v6prefix)
+
+    def test_resolve_keeps_public_addresses_and_widens_ipv6(self):
+        with mock.patch.object(se.socket, "getaddrinfo", return_value=addrinfo("203.0.113.9", "2a01:4f8:1:2::7", "192.168.1.5", "8.8.8.8")):
+            nets = se.dyndns_resolve("home.example.org", 64)
+        self.assertEqual(nets, ["8.8.8.8", "2a01:4f8:1:2::/64"])  # 203.0.113.9 is documentation space: not public
+
+    def test_resolve_refuses_odd_answers(self):
+        with mock.patch.object(se.socket, "getaddrinfo", return_value=addrinfo("10.0.0.1", "127.0.0.1")):
+            self.assertRaises(se.StepError, se.dyndns_resolve, "home.example.org", 64)
+        many = ["8.8.8.%d" % i for i in range(1, 6)]
+        with mock.patch.object(se.socket, "getaddrinfo", return_value=addrinfo(*many)):
+            self.assertRaises(se.StepError, se.dyndns_resolve, "home.example.org", 64)
+
+    def test_add_validates_the_name(self):
+        for bad in ("", "localhost", "-x.example.org", "a b.example.org", "1.2.3.4"):
+            self.assertRaises(se.StepError, self.add, FakeAllowlist(), bad, "8.8.8.8")
+
+    def test_new_address_is_allowlisted_with_expiry_and_unbanned_in_netfilter(self):
+        cs = FakeAllowlist()
+        out = self.add(cs, "Home.Example.org.", "8.8.4.4", "2a01:4f8:1:2::7")
+        self.assertEqual(out["hosts"][0]["name"], "home.example.org")
+        self.assertEqual(set(cs.items), {"8.8.4.4", "2a01:4f8:1:2::/64"})
+        self.assertTrue(all(i["description"] == "dyndns:home.example.org" for i in cs.items.values()))
+        self.assertTrue(all(55 * 60 < se.seconds_left(i["expiration"]) <= 3600 for i in cs.items.values()))
+        self.assertEqual(sorted(self.unbans), ["2a01:4f8:1:2::/64", "8.8.4.4/32"])
+
+    def test_address_change_swaps_entries_and_records_history(self):
+        cs = FakeAllowlist()
+        self.add(cs, "home.example.org", "8.8.4.4")
+        out = self.sync(cs, "9.9.9.9")
+        self.assertEqual(set(cs.items), {"9.9.9.9"})
+        self.assertEqual(out["history"][0]["added"], ["9.9.9.9"])
+        self.assertEqual(out["history"][0]["removed"], ["8.8.4.4"])
+
+    def test_renews_only_entries_close_to_expiry(self):
+        cs = FakeAllowlist([{"value": "8.8.4.4", "description": "dyndns:home.example.org", "expiration": FakeAllowlist.later(600)}])
+        self.add(cs, "home.example.org", "8.8.4.4")
+        self.assertGreater(se.seconds_left(cs.items["8.8.4.4"]["expiration"]), 3000)
+        before = len(cs.cmds)
+        self.sync(cs, "8.8.4.4")  # fresh now: nothing to do
+        self.assertFalse([c for c in cs.cmds[before:] if c[2] in ("add", "remove")])
+
+    def test_resolution_failure_leaves_entries_to_lapse(self):
+        cs = FakeAllowlist()
+        self.add(cs, "home.example.org", "8.8.4.4")
+        import socket
+        with mock.patch.object(se, "run", cs), mock.patch.object(se.socket, "getaddrinfo", side_effect=socket.gaierror(-2, "Name or service not known")):
+            out = se.dyndns_sync()
+        self.assertIn("8.8.4.4", cs.items)  # not removed, not renewed: it expires on its own
+        self.assertIn("doesn't resolve", out["hosts"][0]["error"])
+
+    def test_leaves_manual_entries_alone(self):
+        cs = FakeAllowlist([{"value": "8.8.4.4", "description": "office", "expiration": "0001-01-01T00:00:00Z"}])
+        self.add(cs, "home.example.org", "8.8.4.4")
+        self.assertEqual(cs.items["8.8.4.4"]["description"], "office")
+        self.add(cs, "other.example.org", "9.9.9.9")
+        self.sync(cs, "1.1.1.1")
+        self.assertIn("8.8.4.4", cs.items)
+
+    def test_removing_a_hostname_removes_its_entries(self):
+        cs = FakeAllowlist()
+        self.add(cs, "home.example.org", "8.8.4.4")
+        with mock.patch.object(se, "run", cs):
+            out = se.dyndns_remove("home.example.org")
+        self.assertEqual(cs.items, {})
+        self.assertEqual(out["hosts"], [])
+
+
+class NetfilterWhitelist(unittest.TestCase):
+    def test_takes_back_what_cowsec_added_but_keeps_admin_lines(self):
+        d = mkdtemp()
+        state = os.path.join(d, "netfilter.json")
+        with open(state, "w") as f:
+            json.dump({"mode": "side-by-side", "syncTrusted": True, "whitelisted": ["8.8.4.4/32", "10.0.0.0/8"]}, f)
+        posted = []
+        cur = {"whitelist": "8.8.4.4/32\n10.0.0.0/8\n198.51.100.0/24", "manage_external": 0}
+        api = lambda m, p, b=None: cur if m == "GET" else posted.append(b["attr"]["whitelist"])
+        with mock.patch.object(se, "NETFILTER_STATE", state), mock.patch.object(se, "mailcow_api", side_effect=api), \
+                mock.patch.object(se, "trusted_networks", return_value=["10.0.0.0/8", "9.9.9.9/32"]):
+            st = se.netfilter_sync()
+        self.assertEqual(posted, ["10.0.0.0/8\n198.51.100.0/24\n9.9.9.9/32"])  # 8.8.4.4 gone, the admin's /24 kept
+        self.assertEqual(st["whitelisted"], ["10.0.0.0/8", "9.9.9.9/32"])
+        shutil.rmtree(d, ignore_errors=True)

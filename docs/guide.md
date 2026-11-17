@@ -124,7 +124,7 @@ CrowdSec, the mailcow log readers and the firewall bouncer are always installed.
 
 | Option | What it does |
 |---|---|
-| **Home countries** | Failed logins from here follow CrowdSec's normal rules. Defaults to your browser's country. |
+| **Home countries** | Failed logins from here follow CrowdSec's normal rules. Suggested from your browser's time zone (or its language's region), and you confirm them before going on: leaving out your own country puts your own logins under the stricter abroad rule. |
 | **OpenResty edge with AppSec WAF** | A hardened reverse proxy in front of mailcow's web UI. The CrowdSec bouncer and WAF check every request. mailcow's own web server moves to localhost. |
 | **Admin pages on the local network only** | `/admin` and `/domainadmin` answer only from private addresses. Webmail and ActiveSync stay public. |
 | **Behind Cloudflare's proxy** | Trusts `CF-Connecting-IP` from Cloudflare's ranges (refreshed monthly), so bans hit visitors rather than Cloudflare. |
@@ -279,7 +279,7 @@ Either way, your trusted networks are kept in netfilter's whitelist, and lifting
 
 ### Trusted Herd (Allowlists)
 
-Your own allowlist, applied instantly by CrowdSec's API and also filtering community blocklists, plus a read-only view of the whitelist parsers.
+Your own allowlist, applied instantly by CrowdSec's API and also filtering community blocklists, plus a read-only view of the whitelist parsers. **Dynamic DNS hostnames** keep a home connection with a changing address trusted: CowSec re-resolves the name every minute (see [Ban policy: dynamic DNS hostnames](ban-policy.md#dynamic-dns-hostnames) for how, and what to watch out for).
 
 <p align="center"><img src="img/console/trusted-herd.webp" alt="Allowlists" width="900"></p>
 

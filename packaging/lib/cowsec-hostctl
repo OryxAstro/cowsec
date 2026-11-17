@@ -14,6 +14,8 @@ SSH_ORIGINAL_COMMAND; every verb is allowlisted below and none runs arbitrary co
   dns-providers          DNS-01 providers supported by lego
   dns-help <code>        credentials a DNS provider needs
   certs-renew            renew DNS-01 certificates (timer)
+  dyndns-list | dyndns-sync | dyndns-add <host> <64|128> | dyndns-remove <host>
+                         dynamic DNS hostnames kept in the allowlist (dyndns-sync runs every minute)
 """
 import datetime, json, os, re, shutil, socket, sqlite3, subprocess, sys, syslog, time
 
@@ -653,6 +655,16 @@ def main():
             o = json.loads(sys.stdin.read(16384) or "{}")
             log("%s cowsec-update-source repo=%s token=%s" % (peer, o.get("repo"), "set" if o.get("token") else ("cleared" if o.get("clearToken") else "unchanged")))
             print(json.dumps(se.set_update_source(o.get("repo"), o.get("token"), bool(o.get("clearToken"))))); return
+        if verb == "dyndns-list" and not args:
+            print(json.dumps(se.dyndns_list())); return
+        if verb == "dyndns-sync" and not args:
+            print(json.dumps(se.dyndns_sync())); return
+        if verb == "dyndns-add" and len(args) == 2 and args[1] in ("64", "128"):
+            log("%s dyndns-add %s /%s" % (peer, args[0], args[1]))
+            print(json.dumps(se.dyndns_add(args[0], int(args[1])))); return
+        if verb == "dyndns-remove" and len(args) == 1:
+            log("%s dyndns-remove %s" % (peer, args[0]))
+            print(json.dumps(se.dyndns_remove(args[0]))); return
         if verb == "netfilter-sync" and not args:
             print(json.dumps(se.netfilter_sync())); return
         if verb == "certs-renew" and not args:

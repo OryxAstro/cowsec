@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -528,4 +529,56 @@ func Routes(cr chi.Router, t *Target) {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
+
+	// Dynamic DNS hostnames: re-resolved every minute and kept in the allowlist by the helper.
+	dyndns := func(w http.ResponseWriter, verb string, args ...string) {
+		out, err := t.gate(verb, args...)
+		if err != nil {
+			http.Error(w, helperMessage(err), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(out)
+	}
+	cr.Get("/dyndns", func(w http.ResponseWriter, r *http.Request) { dyndns(w, "dyndns-list") })
+	cr.Post("/dyndns/check", func(w http.ResponseWriter, r *http.Request) { dyndns(w, "dyndns-sync") })
+	cr.Post("/dyndns", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Name     string `json:"name"`
+			V6Prefix int    `json:"v6prefix"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		name := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(req.Name)), ".")
+		if !hostnameRe.MatchString(name) {
+			http.Error(w, "enter a hostname like home.example-dyndns.org", http.StatusBadRequest)
+			return
+		}
+		if req.V6Prefix != 128 {
+			req.V6Prefix = 64
+		}
+		dyndns(w, "dyndns-add", name, strconv.Itoa(req.V6Prefix))
+	})
+	cr.Delete("/dyndns", func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		if !hostnameRe.MatchString(name) {
+			http.Error(w, "invalid hostname", http.StatusBadRequest)
+			return
+		}
+		dyndns(w, "dyndns-remove", name)
+	})
+}
+
+var hostnameRe = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$`)
+
+// helperMessage keeps the helper's own explanation from a gate error ("verb failed: exit status 4 (why)").
+func helperMessage(err error) string {
+	e := err.Error()
+	if i := strings.Index(e, " ("); i >= 0 && strings.HasSuffix(e, ")") {
+		return e[i+2 : len(e)-1]
+	}
+	return e
 }
