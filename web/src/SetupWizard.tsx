@@ -3,6 +3,7 @@ import {
   AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Circle, Cloud, Globe, KeyRound, Loader2, Lock, Network, PartyPopper,
   Search, Server, ShieldCheck, Terminal, User, XCircle,
 } from 'lucide-react';
+import { guessCountry } from './tzCountry';
 import CowSecLogo from './CowSecLogo';
 import { postJSON } from './session';
 
@@ -26,10 +27,6 @@ interface Job { state: 'never' | 'running' | 'ok' | 'failed'; steps?: JobStep[];
 type Access = 'local' | 'lan' | 'wan' | 'tunnel';
 const STEPS = ['Checks', 'Mail server', 'Protection', 'Certificates', 'Access', 'Account', 'Install'] as const;
 
-const guessCountry = () => {
-  const m = (navigator.language || '').match(/-([A-Z]{2})$/i);
-  return m ? m[1].toUpperCase() : 'GB';
-};
 
 function Shell({ children, wide }: { children: ReactNode; wide?: boolean }) {
   return (
@@ -115,7 +112,9 @@ export default function SetupWizard() {
 
   const [pre, setPre] = useState<Preflight | null>(null);
   const edgeName = pre?.checks.some((c) => c.id === 'edge-nginx') ? 'nginx' : 'OpenResty'; // Debian 13 gets Debian's nginx
-  const [home, setHome] = useState<string[]>([guessCountry()]);
+  const [guess] = useState(guessCountry);
+  const [home, setHome] = useState<string[]>(guess.code ? [guess.code] : []);
+  const [homeConfirmed, setHomeConfirmed] = useState(false);
   const [newCountry, setNewCountry] = useState('');
   const [comp, setComp] = useState({ edge: true, adminLanOnly: true, cloudflareRealIP: false, chronyPtp: false, banPolicy: true, mailcowApi: true });
 
@@ -188,7 +187,10 @@ export default function SetupWizard() {
       if (ex.edgeSites?.consoleHostname) setHostname(ex.edgeSites.consoleHostname);
       if (ex.edgeSites) setComp((c) => ({ ...c, edge: true, adminLanOnly: ex.edgeSites!.adminLanOnly || c.adminLanOnly }));
       if (ex.cloudflareRealIP) setComp((c) => ({ ...c, cloudflareRealIP: true }));
-      if (ex.policy?.homeCountries?.length) setHome(ex.policy.homeCountries);
+      if (ex.policy?.homeCountries?.length) {
+        setHome(ex.policy.homeCountries);
+        setHomeConfirmed(true); // chosen before, on an earlier install
+      }
       if (ex.certbot && !['standalone', 'webroot', 'nginx', 'apache'].includes(ex.certbot.authenticator)) setCertMode('existing');
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -268,7 +270,7 @@ export default function SetupWizard() {
       if (pre?.checks.some((c) => c.id.startsWith('fresh-') && c.status === 'fail')) return 'Fix the failed checks for installing mailcow first.';
       return '';
     }
-    if (step === 2) return home.length ? '' : 'Choose at least one home country.';
+    if (step === 2) return !home.length ? 'Choose at least one home country.' : homeConfirmed ? '' : 'Confirm your home countries.';
     if (step === 3 && certMode === 'dns01') {
       if (!comp.edge) return 'DNS-01 certificates need the OpenResty edge (Protection step).';
       if (!provider || !help) return 'Choose your DNS provider.';
@@ -522,7 +524,17 @@ export default function SetupWizard() {
                 className="w-32 bg-slate-950/60 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-mono"
               />
             </div>
-            <p className="text-xs text-slate-500 mt-1">Failed mail logins from these countries follow CrowdSec's normal rules; elsewhere is stricter, and repeat offenders get longer bans. You can change this later.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {guess.code && home.includes(guess.code)
+                ? `${guess.code} is suggested from your browser's ${guess.from}${guess.from === 'time zone' ? ` (${guess.zone})` : ''}. `
+                : !home.length ? 'Add the two-letter code of each country you and your users sign in from (e.g. DE, GB, US). ' : ''}
+              Failed mail logins from these countries follow CrowdSec's normal rules. From anywhere else the stricter rule applies: with the smart ban
+              policy, 2 failed logins ban an address, so leaving out your own country can lock you out.
+            </p>
+            <label className="mt-2 flex items-start gap-2 text-xs text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={homeConfirmed} onChange={(e) => setHomeConfirmed(e.target.checked)} className="mt-0.5 accent-sky-500" />
+              <span>These are the countries my users and I sign in from{home.length ? ` (${home.join(', ')})` : ''}. I can change them later under Herd Rules.</span>
+            </label>
           </div>
           <Toggle on={comp.edge} onChange={(v) => setComp({ ...comp, edge: v })} label={`${edgeName} edge with AppSec WAF`} badge="recommended"
             hint={"Puts a hardened reverse proxy in front of mailcow's web UI: every request is checked by CrowdSec and its WAF. mailcow's own web server moves to localhost (ports 8180/8443)." +

@@ -3,6 +3,7 @@ import Flag from './Flag';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Globe, Loader2, Mail, Plus, Repeat, Save, ShieldCheck, TrendingUp, X } from 'lucide-react';
 import { Card, Tile } from './HostPanel';
+import { guessCountry } from './tzCountry';
 
 interface Policy {
   homeCountries: string[];
@@ -193,6 +194,20 @@ export default function PolicyPanel() {
           <p className="text-xs text-slate-400">
             Failed logins from these countries follow CrowdSec's normal rules, so a mistyped password on your phone won't lock you out. Everywhere else gets the stricter rule below.
           </p>
+          {(() => {
+            const g = guessCountry();
+            return g.code && !draft.homeCountries.includes(g.code) ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-100/90">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                <span className="flex-1 min-w-48">
+                  Your browser's {g.from}{g.from === 'time zone' ? ` (${g.zone})` : ''} suggests you're in <b className="font-mono">{g.code}</b>{names[g.code] ? ` (${names[g.code]})` : ''}, which isn't a home country. Your own failed logins get the stricter rule.
+                </span>
+                <button onClick={() => addCountry(g.code)} className="inline-flex items-center gap-1 font-semibold text-amber-200 border border-amber-500/40 rounded-lg px-2 py-1 hover:bg-amber-500/10 cursor-pointer">
+                  <Plus className="w-3.5 h-3.5" /> Add {g.code}
+                </button>
+              </div>
+            ) : null;
+          })()}
           <div className="flex flex-wrap gap-2">
             {draft.homeCountries.map((c) => (
               <span key={c} className="inline-flex items-center space-x-1.5 bg-sky-950/50 border border-sky-800 text-sky-200 rounded-lg pl-2.5 pr-1 py-1 text-xs font-semibold">
