@@ -34,6 +34,14 @@ const { loadConfig, browser, snap } = require('./lib');
     await p.waitForSelector('text=Home countries');
     const noEdge = (await p.locator('text=not available on Debian 13 yet').count()) > 0;
     console.log('edge available:', !noEdge);
+    // home countries: take the suggestion (from the browser's time zone or language), or GB, and confirm
+    const chips = p.locator('span.font-mono:has(button:text("×"))');
+    if (!(await chips.count())) {
+      await p.fill('input[placeholder^="add, e.g."]', s.homeCountry || 'GB');
+      await p.press('input[placeholder^="add, e.g."]', 'Enter');
+    }
+    console.log('home countries:', (await chips.allInnerTexts()).map((t) => t.replace('×', '').trim()).join(', '));
+    await p.check('label:has-text("These are the countries") input[type=checkbox]');
     await snap(p, cfg, 'protection');
 
     await next();
