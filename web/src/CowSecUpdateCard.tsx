@@ -20,6 +20,7 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
   const [source, setSource] = useState(false);
   const [repo, setRepo] = useState('');
   const [token, setToken] = useState('');
+  const [privateRepo, setPrivateRepo] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [justUpdated, setJustUpdated] = useState(() => {
     try { return localStorage.getItem('cowsec_just_updated') === '1'; } catch { return false; }
@@ -123,19 +124,26 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
               {rel.tokenSet && <span className="ml-1 inline-flex items-center gap-1 text-emerald-300"><KeyRound className="w-3 h-3" /> token set</span>}
             </button>
             {source && (
-              <div className="mt-3 grid sm:grid-cols-[1fr_1.4fr_auto] gap-2 items-end cs-page">
-                <label className="flex flex-col gap-1 text-xs text-slate-400">GitHub repository
-                  <input className={input} value={repo} onChange={(e) => setRepo(e.target.value.trim())} placeholder="owner/name" />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-slate-400">Read-only token (only for a private repository)
-                  <input className={`${input} font-mono`} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off"
-                    placeholder={rel.tokenSet ? 'A token is saved; paste a new one to replace it' : 'github_pat_…'} />
-                </label>
-                <div className="flex gap-2">
+              <div className="mt-3 space-y-2 cs-page">
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col gap-1 text-xs text-slate-400 flex-1 min-w-56">GitHub repository
+                    <input className={input} value={repo} onChange={(e) => setRepo(e.target.value.trim())} placeholder="owner/name" />
+                  </label>
                   <button onClick={() => saveSource({ repo, ...(token ? { token } : {}) })} className={`${btn} bg-sky-600 hover:bg-sky-500 text-white`}><CheckCircle2 className="w-3.5 h-3.5" /> Save</button>
-                  {rel.tokenSet && <button onClick={() => saveSource({ repo, clearToken: true })} className={`${btn} text-slate-400 hover:text-rose-300`} title="Remove the saved token"><Trash2 className="w-3.5 h-3.5" /></button>}
                 </div>
-                <p className="sm:col-span-3 text-[11px] text-slate-500">Create a fine-grained token with read-only <b>Contents</b> access to this one repository. It is stored root-only on the server and never shown again.</p>
+                {/* a token is only for a private fork; the public repository needs none */}
+                {privateRepo || rel.tokenSet || rel.tokenNeeded ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1 text-xs text-slate-400 flex-1 min-w-56">Read-only token for a private repository
+                      <input className={`${input} font-mono`} type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off"
+                        placeholder={rel.tokenSet ? 'A token is saved; paste a new one to replace it' : 'github_pat_…'} />
+                    </label>
+                    {rel.tokenSet && <button onClick={() => saveSource({ repo, clearToken: true })} className={`${btn} text-slate-400 hover:text-rose-300 border border-slate-700`}><Trash2 className="w-3.5 h-3.5" /> Remove token</button>}
+                    <p className="w-full text-[11px] text-slate-500">Only needed when the repository above is private: a fine-grained token with read-only <b>Contents</b> access to that one repository. Stored root-only on the server and never shown again.</p>
+                  </div>
+                ) : (
+                  <button onClick={() => setPrivateRepo(true)} className="text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer">Private repository? Add a read-only token</button>
+                )}
               </div>
             )}
           </div>
