@@ -6,7 +6,7 @@ import { Card } from './HostPanel';
 import CowSecLogo from './CowSecLogo';
 
 interface Release {
-  repo: string; tokenSet: boolean; installed: string | null; checked: string; error: string | null; updateAvailable: boolean;
+  repo: string; tokenSet: boolean; tokenNeeded?: boolean; installed: string | null; checked: string; error: string | null; updateAvailable: boolean;
   latest: { tag: string; name: string; published: string; notes: string; url: string; version: string; deb: { size?: number } } | null;
 }
 
@@ -108,6 +108,15 @@ export default function CowSecUpdateCard({ busy, onUpdate }: { busy: boolean; on
             </button>
             <p className="text-[11px] text-slate-500 flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5 text-emerald-400" /> Checked against the release's SHA-256 before installing. Only the console restarts; mail and protection keep running.</p>
           </div>
+          {rel.tokenSet && !rel.tokenNeeded && !rel.error && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-100/90">
+              <KeyRound className="w-3.5 h-3.5 text-sky-300" />
+              <span className="flex-1 min-w-48">{rel.repo} is public, so CowSec checks for updates without the saved token. You can remove it; nothing changes.</span>
+              <button onClick={() => saveSource({ repo: rel.repo, clearToken: true })} className={`${btn} text-sky-200 border border-sky-500/40 hover:bg-sky-500/10`}>
+                <Trash2 className="w-3.5 h-3.5" /> Remove the token
+              </button>
+            </div>
+          )}
           <div className="border-t border-slate-800 pt-3">
             <button onClick={() => setSource(!source)} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white cursor-pointer">
               <Settings2 className="w-3.5 h-3.5" /> Release source: <span className="font-mono">{rel.repo}</span>

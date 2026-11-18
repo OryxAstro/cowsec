@@ -679,3 +679,52 @@ class NetfilterWhitelist(unittest.TestCase):
         self.assertEqual(posted, ["10.0.0.0/8\n198.51.100.0/24\n9.9.9.9/32"])  # 8.8.4.4 gone, the admin's /24 kept
         self.assertEqual(st["whitelisted"], ["10.0.0.0/8", "9.9.9.9/32"])
         shutil.rmtree(d, ignore_errors=True)
+
+
+class GitHubToken(unittest.TestCase):
+    def setUp(self):
+        se.TOKEN_NEEDED = False
+
+    def github(self, public, token_ok=True):
+        """A fake GitHub: answers anonymously for a public repository; a private one needs a valid token."""
+        import urllib.error
+        seen = []
+        def urlopen(req, context=None, timeout=None):
+            auth = req.get_header("Authorization")
+            seen.append(auth)
+            if public and not auth:
+                return io.BytesIO(b'{"tag_name": "v9.9.9"}')
+            if auth and not token_ok:
+                raise urllib.error.HTTPError(req.full_url, 401, "Bad credentials", {}, None)
+            if auth and not public:
+                return io.BytesIO(b'{"tag_name": "v1.0.0"}')
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+        return seen, urlopen
+
+    def call(self, repo, token, urlopen):
+        with mock.patch.object(se, "update_source", return_value=(repo, token)), mock.patch.object(se.urllib.request, "urlopen", side_effect=urlopen):
+            return se._gh("https://api.github.com/repos/%s/releases/latest" % repo)
+
+    def test_public_repo_never_sends_the_token(self):
+        seen, urlopen = self.github(public=True, token_ok=False)
+        self.assertEqual(self.call("OryxAstro/cowsec", "github_pat_expired", urlopen)["tag_name"], "v9.9.9")
+        self.assertEqual(seen, [None])
+        self.assertFalse(se.TOKEN_NEEDED)
+
+    def test_private_repo_uses_the_token(self):
+        seen, urlopen = self.github(public=False)
+        self.assertEqual(self.call("me/private", "github_pat_good", urlopen)["tag_name"], "v1.0.0")
+        self.assertEqual(seen, [None, "Bearer github_pat_good"])
+        self.assertTrue(se.TOKEN_NEEDED)
+
+    def test_private_repo_with_an_expired_token_says_so(self):
+        seen, urlopen = self.github(public=False, token_ok=False)
+        with self.assertRaises(se.StepError) as cm:
+            self.call("me/private", "github_pat_expired", urlopen)
+        self.assertIn("expired or been revoked", str(cm.exception))
+
+    def test_private_repo_without_a_token_asks_for_one(self):
+        seen, urlopen = self.github(public=False)
+        with self.assertRaises(se.StepError) as cm:
+            self.call("me/private", "", urlopen)
+        self.assertIn("needs a read-only token", str(cm.exception))

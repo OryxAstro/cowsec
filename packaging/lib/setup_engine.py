@@ -2320,24 +2320,47 @@ def set_update_source(repo=None, token=None, clear_token=False):
     return {"repo": repo, "tokenSet": bool(cur_token)}
 
 
-def _gh(url, accept="application/vnd.github+json", dest=None):
-    """GitHub request with the token in a header only (never a command line or a log)."""
+TOKEN_NEEDED = False  # set when GitHub only answered with the saved token (a private repository)
+
+
+def _gh_once(url, accept, dest, token):
     import ssl
-    repo, token = update_source()
     req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "cowsec-updater", "X-GitHub-Api-Version": "2022-11-28"})
     if token:
         req.add_header("Authorization", "Bearer " + token)
+    with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
+        if dest:
+            with open(dest, "wb") as f:
+                shutil.copyfileobj(resp, f)
+            return None
+        return json.loads(resp.read())
+
+
+def _gh(url, accept="application/vnd.github+json", dest=None):
+    """GitHub request, without the token first: a public repository needs none, so a saved token
+    that has expired can't break updates. The token (sent in a header only, never on a command line
+    or in a log) is used when GitHub won't answer without it: a private repository, or the
+    anonymous rate limit."""
+    global TOKEN_NEEDED
+    repo, token = update_source()
     try:
-        with urllib.request.urlopen(req, context=ssl.create_default_context(), timeout=60) as resp:
-            if dest:
-                with open(dest, "wb") as f:
-                    shutil.copyfileobj(resp, f)
-                return None
-            return json.loads(resp.read())
+        try:
+            return _gh_once(url, accept, dest, None)
+        except urllib.error.HTTPError as e:
+            if not token or e.code not in (401, 403, 404, 429):
+                raise
+        try:
+            out = _gh_once(url, accept, dest, token)
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise StepError("GitHub refused the saved token (401): it has expired or been revoked. Paste a new one")
+            raise
+        TOKEN_NEEDED = True
+        return out
     except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise StepError("GitHub refused the request (%d): check the token" % e.code)
-        if e.code == 404:
+        if e.code in (403, 429):
+            raise StepError("GitHub refused the request (%d): too many requests from this address; try again later" % e.code)
+        if e.code in (401, 404):
             raise StepError("no releases found for %s%s" % (repo, "" if token else " (a private repository needs a read-only token)"))
         raise StepError("GitHub returned %d" % e.code)
     except urllib.error.URLError as e:
@@ -2377,6 +2400,7 @@ def cowsec_release_status(force=False):
                         "sums": {"api": sums["url"]}}
     except StepError as e:
         st["error"] = str(e)
+    st["tokenNeeded"] = TOKEN_NEEDED
     st["updateAvailable"] = newer((st.get("latest") or {}).get("version"), st["installed"])
     write(RELEASE_CACHE, json.dumps(st) + "\n", 0o600)
     return st
